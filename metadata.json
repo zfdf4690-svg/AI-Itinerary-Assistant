@@ -1,0 +1,6 @@
+{
+  "name": "AI 语音行程助手",
+  "description": "说人话记日程的情绪陪伴型 AI 语音行程助手，智能解析语音日程、多轮纠错、多元人格声线提醒与今日行程管理。",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
