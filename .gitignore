@@ -6,3 +6,12 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# 后端（server/）运行时产物
+server/node_modules/
+server/dist/
+server/data/
+
+# 项目本地 Node 运行时（可删除，仅本机使用）
+.nodejs/
+node-v22*.zip
