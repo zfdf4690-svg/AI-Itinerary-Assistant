@@ -47,17 +47,25 @@ export interface ScheduleItem {
   id: string;
   time: string; // e.g. "15:00"
   dateLabel: string; // e.g. "明天 (周二)" or "9月29日"
+  /** 绝对日期 YYYY-MM-DD（后端字段；本地降级时可能缺失） */
+  date?: string;
   title: string; // e.g. "与张总开会"
   location?: string; // e.g. "陆家嘴"
   task: string; // e.g. "与张总开会"
   matters?: string; // e.g. "二期项目"
   remindOffset?: string; // e.g. "提前 30 分钟"
+  /** 提醒提前量（分钟，后端字段） */
+  remindOffsetMinutes?: number;
   accentColor?: 'blue' | 'red' | 'orange' | 'emerald';
   priority?: SchedulePriority;
   hasAlarm?: boolean;
   status: 'active' | 'completed' | 'cancelled';
   createdAt: number;
+  updatedAt?: number;
 }
+
+/** 前端下一步动作（任务书 §8/§9 枚举；本地降级时兼容布尔） */
+export type ActionType = 'ASK_REQUIRED' | 'ASK_OPTIONAL' | 'SHOW_SCHEDULE_CARD' | 'NONE';
 
 export interface ChatMessage {
   id: string;
@@ -65,7 +73,7 @@ export interface ChatMessage {
   text: string;
   scheduleDraft?: Partial<ScheduleItem>;
   timestamp: number;
-  actionRequired?: boolean;
+  actionRequired?: ActionType | boolean;
 }
 
 /**

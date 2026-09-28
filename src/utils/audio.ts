@@ -163,6 +163,35 @@ export function stopSpeaking() {
   currentUtterance = null;
 }
 
+/** 播放后端 TTS 返回的 base64 音频（mp3）；失败时由调用方降级浏览器合成 */
+export function playBase64Audio(base64: string, onEnd?: () => void) {
+  try {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+    const blob = new Blob([bytes], { type: 'audio/mp3' });
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    audio.onended = () => {
+      URL.revokeObjectURL(url);
+      onEnd?.();
+    };
+    audio.onerror = () => {
+      console.warn('后端 TTS 音频播放失败');
+      URL.revokeObjectURL(url);
+      onEnd?.();
+    };
+    audio.play().catch((err) => {
+      console.warn('后端 TTS 音频播放失败', err);
+      URL.revokeObjectURL(url);
+      onEnd?.();
+    });
+  } catch (err) {
+    console.warn('playBase64Audio 解码失败', err);
+    onEnd?.();
+  }
+}
+
 export function isSpeaking(): boolean {
   if (isMiniMaxAudioPlaying()) return true;
   if (!('speechSynthesis' in window)) return false;

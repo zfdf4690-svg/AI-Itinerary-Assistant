@@ -1,15 +1,44 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { playAudioFeedback } from '../../utils/audio';
 import { BottomTabBar } from '../common/BottomTabBar';
+import { DEFAULT_BACKEND_URL } from '../../services/apiClient';
 
 export const SettingsView: React.FC = () => {
   const {
     autoVoiceEnabled,
     setAutoVoiceEnabled,
     dailyReminderConfig,
-    updateDailyReminderConfig
+    updateDailyReminderConfig,
+    backendStatus,
+    backendUrl,
+    updateBackendUrl,
+    recheckBackend
   } = useApp();
+
+  const [backendInput, setBackendInput] = useState(backendUrl);
+  const [isChecking, setIsChecking] = useState(false);
+
+  const statusText =
+    backendStatus === 'online' ? '已连接' :
+    backendStatus === 'offline' ? '未连接（使用本地模式）' : '检测中…';
+  const statusDot =
+    backendStatus === 'online' ? 'bg-[#34C759]' :
+    backendStatus === 'offline' ? 'bg-[#FF9500]' : 'bg-[#AEAEB2]';
+
+  const handleApplyBackendUrl = async () => {
+    playAudioFeedback('tap');
+    setIsChecking(true);
+    updateBackendUrl(backendInput);
+    await recheckBackend();
+    setIsChecking(false);
+  };
+
+  const handleResetBackendUrl = () => {
+    playAudioFeedback('tap');
+    setBackendInput(DEFAULT_BACKEND_URL);
+    updateBackendUrl(DEFAULT_BACKEND_URL);
+  };
 
   return (
     <div className="relative flex flex-col h-full bg-[#F5F5F7] text-[#1D1D1F] select-none font-sans overflow-hidden">
@@ -91,17 +120,46 @@ export const SettingsView: React.FC = () => {
           </div>
         </div>
 
-        {/* Group 4: AI */}
+        {/* Group 4: 后端连接（任务书 Phase 4） */}
         <div className="space-y-1.5">
           <span className="text-[12px] font-semibold text-[#86868B] px-1 uppercase tracking-wider">
-            AI
+            后端连接
           </span>
-          <div className="bg-[#FFFFFF] rounded-[16px] p-4 border border-[#E5E5EA] shadow-apple flex items-center justify-between text-[15px]">
-            <span className="text-[#1D1D1F]">AI 服务状态</span>
-            <div className="flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-[#34C759]" />
-              <span className="text-[13px] text-[#86868B]">服务运行正常</span>
+          <div className="bg-[#FFFFFF] rounded-[16px] p-4 border border-[#E5E5EA] shadow-apple space-y-3">
+            <div className="flex items-center justify-between text-[15px]">
+              <span className="text-[#1D1D1F]">服务状态</span>
+              <div className="flex items-center gap-1.5">
+                <span className={`w-2 h-2 rounded-full ${statusDot}`} />
+                <span className="text-[13px] text-[#86868B]">{statusText}</span>
+              </div>
             </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={backendInput}
+                onChange={(e) => setBackendInput(e.target.value)}
+                placeholder="http://localhost:4599/api/v1"
+                className="flex-1 min-w-0 rounded-[10px] border border-[#D2D2D7] bg-[#F2F2F7] px-3 py-2 text-[13px] text-[#1D1D1F] focus:outline-none focus:border-[#007AFF]"
+              />
+              <button
+                type="button"
+                onClick={handleApplyBackendUrl}
+                disabled={isChecking}
+                className="shrink-0 h-[36px] px-3 rounded-[10px] bg-[#007AFF] hover:bg-[#007AFF]/90 active:scale-95 text-[#FFFFFF] text-[13px] font-medium transition-all cursor-pointer disabled:opacity-50"
+              >
+                {isChecking ? '检测…' : '应用'}
+              </button>
+              <button
+                type="button"
+                onClick={handleResetBackendUrl}
+                className="shrink-0 h-[36px] px-3 rounded-[10px] bg-[#F2F2F7] hover:bg-[#E5E5EA] active:scale-95 text-[#1D1D1F] text-[13px] font-medium transition-all cursor-pointer"
+              >
+                默认
+              </button>
+            </div>
+            <p className="text-[12px] text-[#86868B]">
+              在线时日程理解、创建、修改与语音均由后端处理；离线自动降级为本地模式。
+            </p>
           </div>
         </div>
 

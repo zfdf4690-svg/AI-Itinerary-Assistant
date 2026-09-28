@@ -2,25 +2,41 @@ import React from 'react';
 import { useApp } from '../../context/AppContext';
 import { playAudioFeedback } from '../../utils/audio';
 
+/**
+ * 03 AI Clarification：AI 补充信息页。
+ * 文案由后端会话流/理解结果动态生成（任务书 Phase 4：replyText / missingOptional），
+ * 无后端时保留本地降级文案。
+ */
 export const ClarificationView: React.FC = () => {
-  const { currentDraft, setCurrentDraft, setCurrentView, applyModification } = useApp();
+  const { currentDraft, setCurrentDraft, setCurrentView, applyModification, chatMessages, backendStatus } = useApp();
+
+  // 动态追问文案：优先取最近一条 AI 回复（后端回复 / 本地追问）
+  const lastAiMessage = [...chatMessages].reverse().find((m) => m.sender === 'ai');
+  const questionText = (lastAiMessage?.text || '好的，还需要知道会议地点吗？').replace(/\n/g, ' ');
+  const subtitleText = currentDraft?.location
+    ? '还需要补充其他信息吗？'
+    : '还需要知道会议地点吗？';
 
   const handleSkipLocation = () => {
     playAudioFeedback('tap');
-    // Optional field does NOT block schedule creation
-    setCurrentView('confirmation');
+    // 后端在线：走会话流「拒绝补充」（任务书：用户拒绝可选信息不阻塞创建）
+    if (backendStatus === 'online') {
+      applyModification('不用了');
+    } else {
+      // Optional field does NOT block schedule creation
+      setCurrentView('confirmation');
+    }
   };
 
   const handleAddLocation = () => {
     playAudioFeedback('tap');
-    if (currentDraft) {
+    if (backendStatus !== 'online' && currentDraft) {
       setCurrentDraft({
         ...currentDraft,
         location: '陆家嘴'
       });
     }
     applyModification('地点在陆家嘴');
-    setCurrentView('confirmation');
   };
 
   return (
@@ -31,11 +47,11 @@ export const ClarificationView: React.FC = () => {
       <div className="max-w-[340px] mx-auto text-center space-y-6">
         {/* Natural AI Guidance Copy outside card */}
         <div className="space-y-3">
-          <p className="text-[17px] font-semibold text-[#1D1D1F] leading-snug">
-            好的，我先帮你安排明天下午 3 点和张总的会议。
+          <p className="text-[17px] font-semibold text-[#1D1D1F] leading-snug whitespace-pre-line">
+            {questionText}
           </p>
           <p className="text-[15px] text-[#86868B]">
-            还需要知道会议地点吗？
+            {subtitleText}
           </p>
         </div>
 

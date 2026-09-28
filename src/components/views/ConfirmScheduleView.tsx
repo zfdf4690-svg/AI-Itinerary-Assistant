@@ -62,8 +62,8 @@ export const ConfirmScheduleView: React.FC = () => {
       <div className="flex-1 overflow-y-auto px-6 py-2 space-y-4">
         {/* Natural AI Dialog Prompt outside Card */}
         <div className="text-center pt-1 pb-1">
-          <h2 className="text-[17px] font-semibold text-[#1D1D1F]">
-            这样安排可以吗？
+          <h2 className="text-[17px] font-semibold text-[#1D1D1F] whitespace-pre-line">
+            {lastAiMessage?.text || '这样安排可以吗？'}
           </h2>
           <p className="text-[13px] text-[#86868B] mt-0.5">
             可直接说“地点改到虹桥”或点击编辑

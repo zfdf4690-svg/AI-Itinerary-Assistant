@@ -10,7 +10,7 @@ import {
 } from '../types';
 import { PERSONAS } from '../constants/personas';
 import { parseScheduleFromUtterance } from '../utils/nlu';
-import { playAudioFeedback, speakText } from '../utils/audio';
+import { playAudioFeedback, playBase64Audio, speakText } from '../utils/audio';
 import { BackgroundNotificationToast } from '../components/common/NotificationToast';
 import { 
   DeepSeekConfig, 
@@ -26,6 +26,25 @@ import {
   getStoredMiniMaxConfig,
   saveStoredMiniMaxConfig
 } from '../services/minimaxClient';
+import {
+  apiConfirmConversation,
+  apiCreateConversation,
+  apiCreateSchedule,
+  apiDeleteSchedule,
+  apiListSchedules,
+  apiPutConfig,
+  apiTts,
+  apiTurnConversation,
+  apiUnderstand,
+  apiUpdateSchedule,
+  BackendConversation,
+  getBackendUrl,
+  isBackendReachable,
+  setBackendUrl,
+  BackendActionType,
+} from '../services/apiClient';
+
+type BackendStatus = 'checking' | 'online' | 'offline';
 
 interface AppContextType {
   currentView: ViewType;
@@ -44,8 +63,13 @@ interface AppContextType {
   updateMiniMaxConfig: (updates: Partial<MiniMaxConfig>) => void;
   isLlmProcessing: boolean;
   lastLlmSource: 'deepseek' | 'local_fallback' | null;
+  /** 后端连接状态（任务书 Phase 4）：checking → online/offline */
+  backendStatus: BackendStatus;
+  backendUrl: string;
+  updateBackendUrl: (url: string) => void;
+  recheckBackend: () => Promise<boolean>;
   schedules: ScheduleItem[];
-  addSchedule: (item: Omit<ScheduleItem, 'id' | 'createdAt'>) => ScheduleItem;
+  addSchedule: (item: Omit<ScheduleItem, 'id' | 'createdAt'>) => Promise<ScheduleItem>;
   updateSchedule: (id: string, updates: Partial<ScheduleItem>) => void;
   deleteSchedule: (id: string) => void;
   currentDraft: Partial<ScheduleItem> | null;
@@ -53,7 +77,7 @@ interface AppContextType {
   chatMessages: ChatMessage[];
   resetChatWithUtterance: (utterance: string) => void;
   applyModification: (correctionText: string) => void;
-  confirmDraftSchedule: () => ScheduleItem | null;
+  confirmDraftSchedule: () => Promise<ScheduleItem | null>;
   confirmedItem: ScheduleItem | null;
   isEveningReviewOpen: boolean;
   setIsEveningReviewOpen: (open: boolean) => void;
@@ -158,11 +182,36 @@ const INITIAL_SCHEDULES: ScheduleItem[] = [
 
 const AppContext = createContext<AppContextType | null>(null);
 
+/** 会话流动作是否需要进入澄清视图 */
+function needsClarify(action: BackendActionType | boolean | undefined): boolean {
+  return action === 'ASK_REQUIRED' || action === 'ASK_OPTIONAL';
+}
+
+/** 从后端会话/理解结果取 AI 回复文本 */
+function lastAiText(conv: BackendConversation | undefined, fallback: string): string {
+  if (!conv) return fallback;
+  for (let i = conv.turns.length - 1; i >= 0; i -= 1) {
+    if (conv.turns[i].role === 'ai') return conv.turns[i].text;
+  }
+  return fallback;
+}
+
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentView, setCurrentView] = useState<ViewType>('home');
   const [activePersonaId, setActivePersonaId] = useState<PersonaId>('energetic');
   const [autoVoiceEnabled, setAutoVoiceEnabled] = useState<boolean>(true);
-  const [schedules, setSchedules] = useState<ScheduleItem[]>(INITIAL_SCHEDULES);
+  const [backendStatus, setBackendStatus] = useState<BackendStatus>('checking');
+  const [backendUrl, setBackendUrlState] = useState<string>(getBackendUrl());
+  const [schedules, setSchedules] = useState<ScheduleItem[]>(() => {
+    try {
+      const saved = localStorage.getItem('ai_schedule_local_schedules');
+      if (saved) {
+        const arr = JSON.parse(saved);
+        if (Array.isArray(arr) && arr.length > 0) return arr;
+      }
+    } catch { /* ignore */ }
+    return INITIAL_SCHEDULES;
+  });
   const [currentDraft, setCurrentDraft] = useState<Partial<ScheduleItem> | null>(null);
   const [confirmedItem, setConfirmedItem] = useState<ScheduleItem | null>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -187,8 +236,88 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [lastLlmSource, setLastLlmSource] = useState<'deepseek' | 'local_fallback' | null>(null);
   const [activeNotification, setActiveNotification] = useState<BackgroundNotificationToast | null>(null);
   const triggeredTaskIds = useRef<Set<string>>(new Set());
+  /** 当前会话流 id（后端在线时使用，任务书 Phase 4） */
+  const convIdRef = useRef<string | null>(null);
 
   const activePersona = PERSONAS[activePersonaId];
+
+  // 启动探测后端：在线则拉取日程（后端为权威数据源），离线则本地兜底
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const ok = await isBackendReachable();
+      if (cancelled) return;
+      setBackendStatus(ok ? 'online' : 'offline');
+      if (ok) {
+        try {
+          const list = await apiListSchedules();
+          if (!cancelled && list?.items && list.items.length > 0) {
+            setSchedules(list.items);
+          }
+        } catch (err) {
+          console.warn('[backend] 拉取日程列表失败，使用本地数据', err);
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // 本地兜底持久化：schedules 变化写入 localStorage（后端在线时后端仍是权威）
+  useEffect(() => {
+    try {
+      localStorage.setItem('ai_schedule_local_schedules', JSON.stringify(schedules));
+    } catch { /* ignore */ }
+  }, [schedules]);
+
+  /** 重新探测后端（设置页「重新检测」） */
+  const recheckBackend = async (): Promise<boolean> => {
+    setBackendStatus('checking');
+    const ok = await isBackendReachable();
+    setBackendStatus(ok ? 'online' : 'offline');
+    if (ok) {
+      try {
+        const list = await apiListSchedules();
+        if (list?.items && list.items.length > 0) setSchedules(list.items);
+      } catch (err) {
+        console.warn('[backend] 拉取日程列表失败', err);
+      }
+    }
+    return ok;
+  };
+
+  const updateBackendUrl = (url: string) => {
+    const normalized = url.trim().replace(/\/+$/, '');
+    setBackendUrl(normalized);
+    setBackendUrlState(normalized);
+    void recheckBackend();
+  };
+
+  /** 语音播报：后端在线时优先走后端 TTS（MiniMax），失败降级浏览器/本地 MiniMax */
+  const speakSmart = (text: string, opts?: { pitch?: number; rate?: number }) => {
+    if (!text) return;
+    if (backendStatus === 'online') {
+      apiTtsText(text)
+        .then((ok) => {
+          if (!ok) speakText(text, { ...opts, personaId: activePersonaId });
+        })
+        .catch(() => speakText(text, { ...opts, personaId: activePersonaId }));
+    } else {
+      speakText(text, { ...opts, personaId: activePersonaId });
+    }
+  };
+
+  const apiTtsText = async (text: string): Promise<boolean> => {
+    try {
+      const res = await apiTts(text, { personaId: activePersonaId });
+      if (res?.audioBase64) {
+        playBase64Audio(res.audioBase64);
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  };
 
   const updateDeepSeekConfig = (updates: Partial<DeepSeekConfig>) => {
     setDeepSeekConfig((prev) => {
@@ -196,6 +325,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       saveStoredDeepSeekConfig(next);
       return next;
     });
+    if (backendStatus === 'online') {
+      apiPutConfig({ llm: updates }).catch((err) => console.warn('[backend] 同步 LLM 配置失败', err));
+    }
     playAudioFeedback('tap');
   };
 
@@ -205,6 +337,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       saveStoredMiniMaxConfig(next);
       return next;
     });
+    if (backendStatus === 'online') {
+      apiPutConfig({ minimax: updates }).catch((err) => console.warn('[backend] 同步 MiniMax 配置失败', err));
+    }
     playAudioFeedback('tap');
   };
 
@@ -281,7 +416,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         });
 
         if (autoVoiceEnabled) {
-          speakText(msg, { pitch: activePersona.speechPitch, rate: activePersona.speechRate });
+          speakSmart(msg, { pitch: activePersona.speechPitch, rate: activePersona.speechRate });
         } else {
           playAudioFeedback('bubble');
         }
@@ -308,7 +443,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         });
 
         if (autoVoiceEnabled) {
-          speakText(reviewText, { pitch: activePersona.speechPitch, rate: activePersona.speechRate });
+          speakSmart(reviewText, { pitch: activePersona.speechPitch, rate: activePersona.speechRate });
         } else {
           playAudioFeedback('bubble');
         }
@@ -317,7 +452,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const interval = setInterval(checkAlarms, 10000); // Poll every 10s
     return () => clearInterval(interval);
-  }, [dailyReminderConfig, schedules, activePersona, autoVoiceEnabled]);
+  }, [dailyReminderConfig, schedules, activePersona, autoVoiceEnabled, backendStatus]);
 
   // Test trigger for demonstration
   const triggerManualReminderTest = (priority: SchedulePriority = 'high') => {
@@ -338,12 +473,46 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     if (pref.soundAlert && autoVoiceEnabled) {
-      speakText(msg, { pitch: activePersona.speechPitch, rate: activePersona.speechRate });
+      speakSmart(msg, { pitch: activePersona.speechPitch, rate: activePersona.speechRate });
     }
   };
 
-  // Initialize draft when voice utterance starts (DeepSeek / Local dual-mode)
+  // 首轮语音输入 → 后端会话流（任务书 Phase 4）；离线时走本地 NLU + DeepSeek 双模
   const resetChatWithUtterance = async (utterance: string) => {
+    // 后端在线：创建会话，由后端完成理解 → 追问 → 卡片（权威链路）
+    if (backendStatus === 'online') {
+      setIsLlmProcessing(true);
+      try {
+        const conv = await apiCreateConversation(utterance, activePersonaId);
+        convIdRef.current = conv.id;
+        const draft: Partial<ScheduleItem> =
+          conv.draft && Object.keys(conv.draft).length > 0
+            ? (conv.draft as Partial<ScheduleItem>)
+            : { status: 'active', hasAlarm: true };
+        const replyText = lastAiText(conv, '好的，我帮你记下来了。\n这样安排可以吗？');
+        setCurrentDraft(draft);
+        setChatMessages([
+          {
+            id: `msg-${Date.now()}-ai`,
+            sender: 'ai',
+            text: replyText,
+            scheduleDraft: draft,
+            timestamp: Date.now(),
+            actionRequired: conv.action,
+          },
+        ]);
+        setCurrentView(needsClarify(conv.action) ? 'clarification' : 'confirmation');
+        playAudioFeedback('bubble');
+        if (autoVoiceEnabled) {
+          setTimeout(() => speakSmart(replyText.replace(/\n/g, ' ')), 300);
+        }
+        return;
+      } catch (err) {
+        console.warn('[backend] 创建会话失败，降级本地', err);
+        setIsLlmProcessing(false);
+      }
+    }
+
     // 1. Instant fallback parse for zero-latency screen transition
     const localSlots = parseScheduleFromUtterance(utterance);
     const initialDraft: Partial<ScheduleItem> = {
@@ -409,17 +578,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setLastLlmSource('local_fallback');
       if (autoVoiceEnabled) {
         setTimeout(() => {
-          speakText('好的，我帮你记下来了。这样安排可以吗？', {
+          speakSmart('好的，我帮你记下来了。这样安排可以吗？', {
             pitch: activePersona.speechPitch,
             rate: activePersona.speechRate,
-            personaId: activePersonaId
           });
         }, 300);
       }
     }
   };
 
-  // Handle multi-turn corrections (DeepSeek / Local dual-mode)
+  // 多轮修正 → 后端会话流/单轮理解（任务书 Phase 4）；离线时本地 NLU + DeepSeek 双模
   const applyModification = async (correctionText: string) => {
     if (!currentDraft) return;
 
@@ -429,8 +597,59 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       text: correctionText,
       timestamp: Date.now()
     };
+    setChatMessages((prev) => [...prev, userMsg]);
 
-    // Instant local slots estimation
+    // 后端在线：优先会话流（convIdRef），无会话则单轮理解
+    if (backendStatus === 'online') {
+      setIsLlmProcessing(true);
+      try {
+        let conv: BackendConversation | undefined;
+        let slots: Partial<ScheduleItem> | undefined;
+        let action: BackendActionType | boolean | undefined;
+        let replyText: string;
+
+        if (convIdRef.current) {
+          conv = await apiTurnConversation(convIdRef.current, correctionText);
+          slots = conv.draft && Object.keys(conv.draft).length > 0
+            ? (conv.draft as Partial<ScheduleItem>)
+            : undefined;
+          action = conv.action;
+          replyText = lastAiText(conv, '好的，我已为你更新相关信息。\n这样安排可以吗？');
+        } else {
+          const result = await apiUnderstand(correctionText, currentDraft, activePersonaId);
+          slots = result.slots && Object.keys(result.slots).length > 0
+            ? result.slots
+            : undefined;
+          action = result.actionRequired;
+          replyText = result.replyText || '好的，我已为你更新相关信息。\n这样安排可以吗？';
+        }
+
+        const newDraft: Partial<ScheduleItem> = slots || currentDraft;
+        setCurrentDraft(newDraft);
+        setChatMessages((prev) => [
+          ...prev,
+          {
+            id: `msg-${Date.now()}-ai`,
+            sender: 'ai',
+            text: replyText,
+            scheduleDraft: newDraft,
+            timestamp: Date.now(),
+            actionRequired: action,
+          },
+        ]);
+        setCurrentView(needsClarify(action) ? 'clarification' : 'confirmation');
+        playAudioFeedback('bubble');
+        if (autoVoiceEnabled) {
+          setTimeout(() => speakSmart(replyText.replace(/\n/g, ' ')), 300);
+        }
+        return;
+      } catch (err) {
+        console.warn('[backend] 修正请求失败，降级本地', err);
+        setIsLlmProcessing(false);
+      }
+    }
+
+    // 本地 fallback：instant local slots estimation
     const updatedSlots = parseScheduleFromUtterance(correctionText, currentDraft);
     const newDraft: Partial<ScheduleItem> = {
       ...currentDraft,
@@ -457,7 +676,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       actionRequired: true
     };
 
-    setChatMessages((prev) => [...prev, userMsg, aiMsg]);
+    setChatMessages((prev) => [...prev, aiMsg]);
     playAudioFeedback('bubble');
 
     // DeepSeek refinement if configured
@@ -492,19 +711,51 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setLastLlmSource('local_fallback');
       if (autoVoiceEnabled) {
         setTimeout(() => {
-          speakText(aiReplyText.replace('\n', ' '), {
+          speakSmart(aiReplyText.replace('\n', ' '), {
             pitch: activePersona.speechPitch,
             rate: activePersona.speechRate,
-            personaId: activePersonaId
           });
         }, 300);
       }
     }
   };
 
-  // Confirm schedule
-  const confirmDraftSchedule = (): ScheduleItem | null => {
+  // 确认创建 → 后端会话确认/直建（任务书 Phase 4）；离线时本地创建
+  const confirmDraftSchedule = async (): Promise<ScheduleItem | null> => {
     if (!currentDraft) return null;
+
+    if (backendStatus === 'online') {
+      setIsLlmProcessing(true);
+      try {
+        let schedule: ScheduleItem;
+        if (convIdRef.current) {
+          const res = await apiConfirmConversation(convIdRef.current);
+          schedule = res.schedule;
+          convIdRef.current = null;
+        } else {
+          schedule = await apiCreateSchedule(currentDraft);
+        }
+        // 刷新列表（后端为权威）
+        try {
+          const list = await apiListSchedules();
+          if (list?.items) setSchedules(list.items);
+        } catch (err) {
+          console.warn('[backend] 刷新日程列表失败', err);
+        }
+        setConfirmedItem(schedule);
+        playAudioFeedback('success');
+        setCurrentView('success');
+        if (autoVoiceEnabled) {
+          setTimeout(() => {
+            speakSmart(`已为您创建日程：${schedule.title}，我会在事前提醒你。`);
+          }, 400);
+        }
+        return schedule;
+      } catch (err) {
+        console.warn('[backend] 创建日程失败，降级本地', err);
+        setIsLlmProcessing(false);
+      }
+    }
 
     const newItem: ScheduleItem = {
       id: `sched-${Date.now()}`,
@@ -528,18 +779,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     if (autoVoiceEnabled) {
       setTimeout(() => {
-        speakText(`已为您创建日程：${newItem.title}，我会在事前提醒你。`, {
-          pitch: activePersona.speechPitch,
-          rate: activePersona.speechRate,
-          personaId: activePersonaId
-        });
+        speakSmart(`已为您创建日程：${newItem.title}，我会在事前提醒你。`);
       }, 400);
     }
 
     return newItem;
   };
 
-  const addSchedule = (item: Omit<ScheduleItem, 'id' | 'createdAt'>): ScheduleItem => {
+  const addSchedule = async (item: Omit<ScheduleItem, 'id' | 'createdAt'>): Promise<ScheduleItem> => {
+    if (backendStatus === 'online') {
+      try {
+        const created = await apiCreateSchedule(item);
+        setSchedules((prev) => [created, ...prev]);
+        playAudioFeedback('success');
+        return created;
+      } catch (err) {
+        console.warn('[backend] 创建日程失败，使用本地 id', err);
+      }
+    }
     const newItem: ScheduleItem = {
       ...item,
       id: `sched-${Date.now()}`,
@@ -550,12 +807,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return newItem;
   };
 
-  const updateSchedule = (id: string, updates: Partial<ScheduleItem>) => {
+  const updateSchedule = async (id: string, updates: Partial<ScheduleItem>) => {
     setSchedules((prev) => prev.map((s) => (s.id === id ? { ...s, ...updates } : s)));
+    if (backendStatus === 'online') {
+      try {
+        await apiUpdateSchedule(id, updates);
+      } catch (err) {
+        console.warn('[backend] 局部修改同步失败', err);
+      }
+    }
   };
 
-  const deleteSchedule = (id: string) => {
+  const deleteSchedule = async (id: string) => {
     setSchedules((prev) => prev.filter((s) => s.id !== id));
+    if (backendStatus === 'online') {
+      try {
+        await apiDeleteSchedule(id);
+      } catch (err) {
+        console.warn('[backend] 删除日程同步失败', err);
+      }
+    }
     playAudioFeedback('tap');
   };
 
@@ -578,6 +849,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateMiniMaxConfig,
         isLlmProcessing,
         lastLlmSource,
+        backendStatus,
+        backendUrl,
+        updateBackendUrl,
+        recheckBackend,
         schedules,
         addSchedule,
         updateSchedule,
