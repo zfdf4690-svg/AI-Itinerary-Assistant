@@ -35,10 +35,15 @@ export function validateRequiredFields(slots: Partial<ScheduleItem>): ScheduleVa
 /** 从解析槽位构建 ScheduleItem（确认创建时调用） */
 export function buildScheduleFromSlots(repos: Repos, slots: ParsedSlots): ScheduleItem {
   const now = Date.now();
+  // PHASE 4-B：禁止编造默认值（任务书 §12/§22.G）。调用前须经 validateRequiredFields 校验；
+  // 此处显式防御，防止绕过校验时产生虚假的 15:00 / 重要日程。
+  if (!slots.time || (!slots.task && !slots.title)) {
+    throw new Error('buildScheduleFromSlots: 缺少必填字段（time/task），调用方应先校验');
+  }
   const date = slots.date || todayStr();
   const dateLabel = slots.dateLabel || formatDateLabel(date);
-  const time = slots.time || '15:00';
-  const task = slots.task || slots.title || '重要日程';
+  const time = slots.time;
+  const task = slots.task || slots.title!;
   const title = slots.title || task;
   const location = slots.location || '';
   const matters = slots.matters || '';
