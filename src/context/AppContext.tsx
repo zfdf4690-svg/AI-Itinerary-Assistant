@@ -450,13 +450,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // 1. Instant fallback parse for zero-latency screen transition
     const localSlots = parseScheduleFromUtterance(utterance);
     const initialDraft: Partial<ScheduleItem> = {
-      time: localSlots.time || '15:00',
-      dateLabel: localSlots.dateLabel || '明天 (周二)',
-      title: localSlots.title || '与张总开会',
-      location: localSlots.location || '上海虹桥',
-      task: localSlots.task || '与张总开会',
-      matters: localSlots.matters || '讨论二期项目',
-      remindOffset: localSlots.remindOffset || '提前30分钟',
+      ...(localSlots.time ? { time: localSlots.time } : {}),
+      ...(localSlots.dateLabel ? { dateLabel: localSlots.dateLabel } : {}),
+      ...(localSlots.title ? { title: localSlots.title } : {}),
+      ...(localSlots.location ? { location: localSlots.location } : {}),
+      ...(localSlots.task ? { task: localSlots.task } : {}),
+      ...(localSlots.matters ? { matters: localSlots.matters } : {}),
+      ...(localSlots.remindOffset ? { remindOffset: localSlots.remindOffset } : {}),
       accentColor: 'blue',
       hasAlarm: true,
       status: 'active'
@@ -468,7 +468,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       {
         id: `msg-${Date.now()}-ai`,
         sender: 'ai',
-        text: '好的，我帮你记下来了。\n这样安排可以吗？',
+        text: '好的，我按你的意思草拟了一条日程。\n这样安排可以吗？确认后我就帮你创建。',
         scheduleDraft: initialDraft,
         timestamp: Date.now(),
         actionRequired: true
@@ -723,15 +723,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     }
 
+    if (!currentDraft.time || (!currentDraft.task && !currentDraft.title)) {
+      setChatMessages((prev) => [
+        ...prev,
+        { id: `ai-${Date.now()}`, sender: 'ai', text: '还差时间和任务哦～方便告诉我吗？', timestamp: Date.now(), actionRequired: 'ASK_REQUIRED' },
+      ]);
+      return null;
+    }
     const newItem: ScheduleItem = {
       id: `sched-${Date.now()}`,
-      time: currentDraft.time || '15:00',
-      dateLabel: currentDraft.dateLabel || '明天 (周二)',
-      title: currentDraft.title || '与张总开会',
-      location: currentDraft.location || '陆家嘴',
-      task: currentDraft.task || '与张总开会',
-      matters: currentDraft.matters || '讨论二期项目',
-      remindOffset: currentDraft.remindOffset || '提前30分钟',
+      time: currentDraft.time || '',
+      dateLabel: currentDraft.dateLabel || '',
+      title: currentDraft.title || currentDraft.task || '',
+      location: currentDraft.location || '',
+      task: currentDraft.task || currentDraft.title || '',
+      matters: currentDraft.matters || '',
+      remindOffset: currentDraft.remindOffset || '',
       accentColor: 'blue',
       hasAlarm: true,
       status: 'active',

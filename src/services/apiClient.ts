@@ -25,6 +25,8 @@ export interface BackendUnderstandResult {
 
 export interface BackendConversation {
   id: string;
+  intent?: string;
+  intentConfidence?: number;
   state: string;
   personaId: PersonaId;
   draft: Partial<ScheduleItem>;

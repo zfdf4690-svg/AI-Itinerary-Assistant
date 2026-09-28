@@ -1,13 +1,20 @@
 /**
- * 会话状态机（PRD §5）：① 输入 → ② AI理解 → ③ 补充信息 → ④ 日程卡片 → ⑤ 已创建。
- * 修改不是独立主状态：日程卡片 → 用户自然语言修改 → AI 局部字段更新 → 更新日程卡片。
+ * 会话状态机（PRD §5；PHASE 4-B 升级）：① 输入 → Intent Router → 分派。
  *
- * 关键规则（PRD §4/§15）：
- * - 时间 + 任务为必填；缺失必须澄清（不阻塞）。
- * - 地点/事项/提醒为可选；缺失时委婉追问，用户拒绝则用已有信息创建。
- * - 局部修改只更新对应字段，修改后重新展示卡片并再次请求确认。
+ * PHASE 4-B 架构：
+ *   User Input + Conversation Context
+ *       ↓ Intent Router（规则 + Context 优先，LLM 辅助）
+ *       ↓ ConversationIntent（schedule_create / modify / confirm / cancel / general_chat）
+ *       ↓ 按 Intent 进入不同处理路径
+ *
+ * 关键规则：
+ * - Intent（用户想做什么）与 Action（系统下一步做什么）分离。
+ * - 多轮输入复用同一 Conversation（不每轮重建），turns 完整保存。
+ * - general_chat 绝不进入 Schedule NLU、绝不生成草稿/卡片。
+ * - schedule_confirm 仅在「存在待确认草稿 + 用户明确肯定」时触发创建。
+ * - schedule_cancel 仅在有进行中草稿的上下文中触发，清草稿但保留会话。
  */
-import { ActionType, Conversation, ConversationState, ParsedSlots, ScheduleItem, UnderstandResult } from '../types.js';
+import { ActionType, Conversation, ParsedSlots, ScheduleItem, UnderstandResult } from '../types.js';
 import { genId, Repos } from '../db/repos.js';
 import { getPersona } from './personas.js';
 import { parseWithLLMOrLocal } from './llm.js';
@@ -15,6 +22,7 @@ import { checkCompleteness, extractPreferenceFromText } from './nlu.js';
 import { isRefusal } from '../utils/date.js';
 import { buildScheduleFromSlots, validateRequiredFields } from './schedule.js';
 import { recordEntities, recordEvent, setPreference } from './memory.js';
+import { routeIntent } from './intentRouter.js';
 
 const FIELD_NAMES: Record<string, string> = {
   time: '时间',
@@ -44,12 +52,6 @@ function lastUserText(conv: Conversation): string {
   return '';
 }
 
-/** 确认意图识别：用户明确说"对/可以/好/确认"等肯定词（整句精确匹配，避免误伤修改句） */
-export function isAffirmative(text: string): boolean {
-  const t = text.trim().replace(/[，。！？、,.!?\s]+/g, '');
-  return /^(对|对的|是|是的|可以|可以了|行|行吧|好|好的|好呀|好滴|没问题|确认|确定|就这样|就这么定|嗯|嗯嗯|ok|okay|sure|yes|y)(啊|呀|吧|呢|的|了|哦|啦)?((可以|行|对|好|确认|确定|就这样|没问题))?$/i.test(t);
-}
-
 function changedFields(prev: Partial<ScheduleItem>, next: Partial<ScheduleItem>): string[] {
   const keys = ['time', 'date', 'location', 'task', 'matters', 'remindOffset', 'remindOffsetMinutes', 'priority'];
   return keys.filter((k) => {
@@ -67,8 +69,8 @@ function decideNext(
   draft: Partial<ScheduleItem>,
   parsedReply: string | undefined,
   prevDraft: Partial<ScheduleItem>,
-  prevState: ConversationState,
-): { state: ConversationState; reply: string; missing: string[]; action: ActionType } {
+  prevState: Conversation['state'],
+): { state: Conversation['state']; reply: string; missing: string[]; action: ActionType } {
   const { missingRequired, missingOptional } = checkCompleteness(draft as ParsedSlots);
   const persona = getPersona(personaId);
 
@@ -111,7 +113,7 @@ function mergeDraft(draft: Partial<ScheduleItem>, slots: Partial<ScheduleItem>):
   return next;
 }
 
-/** 新建会话并执行首轮理解 */
+/** 新建会话并执行首轮理解（Conversation 一旦创建，多轮输入持续复用） */
 export async function createConversation(
   repos: Repos,
   options: TurnOptions,
@@ -122,6 +124,7 @@ export async function createConversation(
     personaId: (options.personaId === 'energetic' || options.personaId === 'gentle' || options.personaId === 'professional')
       ? options.personaId
       : 'energetic',
+    intent: 'general_chat',
     draft: {},
     missing: [],
     turns: [],
@@ -135,31 +138,70 @@ export async function createConversation(
   return conv;
 }
 
-/** 推进一轮（核心状态机） */
+/** 推进一轮（核心状态机：Intent Router 分派） */
 export async function runTurn(repos: Repos, conv: Conversation, utterance: string): Promise<Conversation> {
   conv.turns.push({ role: 'user', text: utterance, at: now() });
 
   const persona = getPersona(conv.personaId);
 
-  // 已创建状态收到新输入 → 开始新一轮日程理解
+  // 已创建状态收到新输入 → 开始新一轮日程理解（保留会话本身，turns 持续累积）
   if (conv.state === 'created') {
     conv.draft = {};
     conv.missing = [];
     conv.state = 'input';
   }
 
-  // 用户确认意图：草稿必填完整 → 直接确认创建（纯对话流：不出卡片，确认后才创建）
-  if (isAffirmative(utterance)) {
+  // ① Intent Router：User Input + Conversation Context → Intent
+  let { intent, confidence } = routeIntent(utterance, conv);
+  conv.intent = intent;
+  conv.intentConfidence = confidence;
+
+  // ② schedule_confirm：存在待确认草稿 + 用户明确肯定 → 直接创建
+  if (intent === 'schedule_confirm') {
     const validation = validateRequiredFields(conv.draft);
     if (validation.ok) {
       const confirmed = await confirmConversation(repos, conv);
       if ('schedule' in confirmed) {
-        return confirmed.conv;
+        return confirmed.conv; // confirmConversation 已写入 ai turn + state=created
       }
-      // 校验失败（理论上必填已满足）→ 走正常流程
     }
+    // 必填不完整（理论上罕见）：继续澄清
+    conv.state = 'awaiting_clarify';
+    conv.missing = validation.missingRequired || [];
+    conv.action = 'ASK_REQUIRED';
+    const reply = persona.prompt.askRequired(validation.missingRequired || []);
+    conv.turns.push({ role: 'ai', text: reply, at: now() });
+    conv.updatedAt = now();
+    repos.saveConversations();
+    return conv;
   }
 
+  // ③ schedule_cancel：取消当前创建流程（清草稿，保留会话）
+  if (intent === 'schedule_cancel') {
+    conv.draft = {};
+    conv.missing = [];
+    conv.state = 'input';
+    conv.action = 'NONE';
+    const reply = persona.prompt.cancelAccepted;
+    conv.turns.push({ role: 'ai', text: reply, at: now() });
+    conv.updatedAt = now();
+    repos.saveConversations();
+    return conv;
+  }
+
+  // ④ general_chat：普通闲聊 —— 绝不进入 Schedule NLU、绝不生成草稿/卡片
+  if (intent === 'general_chat') {
+    conv.state = 'chatting';
+    conv.action = 'NONE';
+    // 保留既有 draft（若有），上下文不丢；本轮只做闲聊回复
+    const reply = persona.prompt.generalChat;
+    conv.turns.push({ role: 'ai', text: reply, at: now() });
+    conv.updatedAt = now();
+    repos.saveConversations();
+    return conv;
+  }
+
+  // ⑤ schedule_create / schedule_modify → Schedule NLU 解析（LLM 优先，Local 兜底）
   const refusal = isRefusal(utterance);
   let reply: string;
 
@@ -167,7 +209,6 @@ export async function runTurn(repos: Repos, conv: Conversation, utterance: strin
     // 用户拒绝/终止补充（PRD §4：AI 可以询问，但不能因为用户不愿补充可选信息而阻塞创建）
     const { missingRequired } = checkCompleteness(conv.draft as ParsedSlots);
     if (missingRequired.length > 0) {
-      // 必填（时间/任务）缺失时不可省略，继续澄清
       conv.state = 'awaiting_clarify';
       conv.missing = missingRequired;
       conv.action = 'ASK_REQUIRED';
@@ -181,13 +222,30 @@ export async function runTurn(repos: Repos, conv: Conversation, utterance: strin
       reply = persona.prompt.refuseAccepted;
     }
   } else {
-    // ② AI理解：LLM 优先，本地 NLU 兜底
     const prevDraft = { ...conv.draft };
     const prevState = conv.state;
     const result = await parseWithLLMOrLocal(utterance, conv.draft as ParsedSlots, persona, repos.runtimeConfig.llm);
     conv.source = result.source;
-    conv.draft = mergeDraft(conv.draft, result.slots as Partial<ScheduleItem>);
 
+    // 模糊输入（规则 confidence 低）且 LLM 判定为闲聊 → 回流 general_chat（不 merge slots）
+    if (confidence <= 0.7 && result.intent === 'general_chat') {
+      conv.intent = 'general_chat';
+      conv.state = 'chatting';
+      conv.action = 'NONE';
+      const chatReply = persona.prompt.generalChat;
+      conv.turns.push({ role: 'ai', text: chatReply, at: now() });
+      conv.updatedAt = now();
+      repos.saveConversations();
+      return conv;
+    }
+
+    // LLM 意图辅助修正（规则已优先；此处仅修正低置信度的 create/modify 二选一）
+    if (result.intent === 'schedule_modify' && confidence < 0.9 && Object.keys(conv.draft).length > 0) {
+      conv.intent = 'schedule_modify';
+      conv.intentConfidence = 0.85;
+    }
+
+    conv.draft = mergeDraft(conv.draft, result.slots as Partial<ScheduleItem>);
     const decision = decideNext(conv.personaId, conv.draft, result.replyText, prevDraft, prevState);
     conv.state = decision.state;
     conv.missing = decision.missing;
@@ -195,7 +253,7 @@ export async function runTurn(repos: Repos, conv: Conversation, utterance: strin
     reply = decision.reply;
   }
 
-  // Preference Memory（任务书 §21）：仅识别用户明确表达的偏好（如「以后会议都提前30分钟提醒我」）
+  // Preference Memory（任务书 §21）：仅识别用户明确表达的偏好
   if (!refusal) {
     tryRecordPreference(repos, utterance);
   }
@@ -239,6 +297,7 @@ export async function confirmConversation(repos: Repos, conv: Conversation): Pro
 
   conv.state = 'created';
   conv.action = 'NONE';
+  conv.intent = 'schedule_confirm';
   const persona = getPersona(conv.personaId);
   const reply = persona.prompt.confirmCreated(schedule.title);
   conv.turns.push({ role: 'ai', text: reply, at: now() });
@@ -256,6 +315,25 @@ export async function understandOneShot(
   const persona = getPersona(input.personaId);
   const refusal = isRefusal(input.utterance);
   const draft = input.currentDraft ? { ...input.currentDraft } : {};
+
+  // Intent Router（无会话上下文 → 用草稿模拟上下文）
+  const pseudoConv = input.currentDraft && Object.keys(input.currentDraft).length > 0
+    ? ({ state: 'awaiting_supplement', draft: input.currentDraft } as Conversation)
+    : undefined;
+  const { intent } = routeIntent(input.utterance, pseudoConv);
+
+  // general_chat：绝不进 NLU
+  if (intent === 'general_chat' && !input.currentDraft) {
+    return {
+      state: 'chatting',
+      slots: {},
+      missingRequired: [],
+      missingOptional: [],
+      replyText: persona.prompt.generalChat,
+      source: 'local',
+      actionRequired: 'NONE',
+    };
+  }
 
   if (refusal && input.currentDraft) {
     const { missingRequired, missingOptional } = checkCompleteness(draft as ParsedSlots);

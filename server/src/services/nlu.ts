@@ -167,16 +167,7 @@ export function parseUtterance(text: string, currentDraft?: Partial<ParsedSlots>
     else task = `与${person}沟通`;
     result.task = task;
     result.title = task;
-  } else if (/开会|会议/.test(normalized)) {
-    result.task = '项目会议';
-    result.title = '项目推进会议';
-  } else if (/吃饭|聚餐|晚宴/.test(normalized)) {
-    result.task = '聚餐';
-    result.title = '朋友聚餐';
-  } else if (/喝咖啡|咖啡/.test(normalized)) {
-    result.task = '喝咖啡';
-    result.title = '咖啡时光';
-  }
+  } // PHASE 4-B：无明确人物/对象时不编造任务，交由必填校验追问
 
   // ---- 5. 事项 ----
   const mattersChangeMatch = normalized.match(/(?:事项|议题|内容)(?:改成|改为|是)?\s*([^，,。！？!?\s]{1,24})/);

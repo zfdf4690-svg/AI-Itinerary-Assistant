@@ -45,14 +45,26 @@ export type ConversationState =
   | 'awaiting_clarify' // 必填缺失（时间/任务）→ 必须澄清
   | 'awaiting_supplement' // 可选字段缺失 → 委婉追问，允许拒绝
   | 'card_ready'      // ④ 日程卡片（可确认 / 可修改）
+  | 'chatting'        // 普通闲聊（general_chat），不产生日程
   | 'created';        // ⑤ 已创建
+
+/**
+ * Conversation Intent（PHASE 4-B）：用户本轮「想做什么」。
+ * 与 Action（系统下一步「需要做什么」）分离：intent 由 Intent Router 结合上下文判定。
+ */
+export type ConversationIntent =
+  | 'schedule_create'   // 创建日程
+  | 'schedule_modify'   // 修改/补充当前 draft
+  | 'schedule_confirm'  // 确认当前待确认 draft（必须有草稿且必填完整）
+  | 'schedule_cancel'   // 取消当前创建流程（必须有进行中的 draft 上下文）
+  | 'general_chat';     // 普通闲聊（问候/自我介绍/能力询问等），绝不进入 Schedule NLU
 
 /** 前端需要的下一步动作（任务书 §8/§9 枚举语义） */
 export type ActionType =
   | 'ASK_REQUIRED'       // 必填缺失，必须澄清
   | 'ASK_OPTIONAL'       // 可选缺失，委婉追问（可拒绝）
   | 'SHOW_SCHEDULE_CARD' // 展示日程卡片
-  | 'NONE';              // 无动作（已创建/输入中）
+  | 'NONE';              // 无动作（已创建/输入中/闲聊）
 
 export interface ConversationTurn {
   role: 'user' | 'ai';
@@ -64,6 +76,9 @@ export interface Conversation {
   id: string;
   state: ConversationState;
   personaId: PersonaId;
+  /** PHASE 4-B：当前用户意图（由 Intent Router 结合上下文判定） */
+  intent: ConversationIntent;
+  intentConfidence?: number;
   /** 当前草稿（5 字段） */
   draft: Partial<ScheduleItem>;
   /** 正在追问的可选字段 */
@@ -228,6 +243,10 @@ export interface Persona {
     confirmCreated: (title: string) => string;
     /** 局部修改成功回复 */
     updated: (fields: string[]) => string;
+    /** PHASE 4-B：general_chat 闲聊回复 */
+    generalChat: string;
+    /** PHASE 4-B：schedule_cancel 取消创建回复 */
+    cancelAccepted: string;
     /** 日程提醒模板 */
     reminder: (title: string, minutes: number) => string;
     /** 晚间复盘模板 */

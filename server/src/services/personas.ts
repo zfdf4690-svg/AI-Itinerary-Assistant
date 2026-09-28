@@ -31,6 +31,8 @@ export const PERSONAS: Record<PersonaId, Persona> = {
       },
       confirmCard: '我先帮你草拟好了，这样安排可以吗？确认后我就正式创建～',
       confirmCreated: (title) => `搞定！已为你创建「${title}」，到点我一定准时敲你～`,
+      generalChat: '我是你的 AI 语音行程助手呀～可以帮你安排、修改和提醒日程，随时找我哦！',
+      cancelAccepted: '好嘞～那这次就先不安排了，需要的时候随时叫我！',
       updated: (fields) => {
         const names = fields.map((f) => ({ time: '时间', location: '地点', task: '任务', matters: '事项', remindOffset: '提醒' } as Record<string, string>)[f]).filter(Boolean).join('、');
         return `好滴！${names}已更新，确认后帮你正式创建，可以吗？`;
@@ -64,6 +66,8 @@ export const PERSONAS: Record<PersonaId, Persona> = {
       },
       confirmCard: '好的，我为你草拟了一份安排。确认后我再正式创建，可以吗？',
       confirmCreated: (title) => `已为你建立日程「${title}」。放宽心，时间到了我会轻声提醒你。`,
+      generalChat: '我是你的 AI 语音行程助手，可以帮你安排、修改和提醒日程。',
+      cancelAccepted: '好的，这次就先不安排了。需要时随时告诉我。',
       updated: (fields) => {
         const names = fields.map((f) => ({ time: '时间', location: '地点', task: '任务', matters: '事项', remindOffset: '提醒' } as Record<string, string>)[f]).filter(Boolean).join('、');
         return `好的，${names}已更新。确认后我再正式创建，可以吗？`;
@@ -97,6 +101,8 @@ export const PERSONAS: Record<PersonaId, Persona> = {
       },
       confirmCard: '日程已解析（尚未创建），请确认以下安排。',
       confirmCreated: (title) => `日程已建立：「${title}」。时间提醒与调度已准确定位。`,
+      generalChat: '我是 AI 语音行程助手，支持日程创建、修改与提醒。',
+      cancelAccepted: '已取消本次日程创建。如需继续，随时发起。',
       updated: (fields) => {
         const names = fields.map((f) => ({ time: '时间', location: '地点', task: '任务', matters: '事项', remindOffset: '提醒' } as Record<string, string>)[f]).filter(Boolean).join('、');
         return `${names}已更新，请确认最新安排（尚未创建）。`;
