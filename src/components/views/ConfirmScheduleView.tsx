@@ -66,7 +66,7 @@ export const ConfirmScheduleView: React.FC = () => {
             {lastAiMessage?.text || '这样安排可以吗？'}
           </h2>
           <p className="text-[13px] text-[#86868B] mt-0.5">
-            可直接说“地点改到虹桥”或点击编辑
+            可直接说修改，或点击下方按钮确认创建
           </p>
         </div>
 
@@ -76,13 +76,13 @@ export const ConfirmScheduleView: React.FC = () => {
             {/* Top Date & Time & Title */}
             <div className="space-y-1">
               <div className="text-[14px] font-medium text-[#86868B]">
-                {currentDraft.dateLabel || '明天'}
+                {currentDraft.dateLabel || '未指定日期'}
               </div>
               <div className="text-[32px] font-bold text-[#1D1D1F] tabular-nums tracking-tight leading-none">
-                {currentDraft.time || '15:00'}
+                {currentDraft.time || '未指定时间'}
               </div>
               <div className="text-[18px] font-semibold text-[#1D1D1F] pt-2">
-                {currentDraft.task || currentDraft.title || '与张总开会'}
+                {currentDraft.task || currentDraft.title || '未命名事项'}
               </div>
             </div>
 
@@ -94,21 +94,21 @@ export const ConfirmScheduleView: React.FC = () => {
               <div className="flex items-center justify-between">
                 <span className="text-[#86868B]">时间</span>
                 <span className="font-medium text-[#1D1D1F]">
-                  {currentDraft.dateLabel || '明天'} {currentDraft.time || '15:00'}
+                  {currentDraft.dateLabel || '未指定日期'} {currentDraft.time || ''}
                 </span>
               </div>
 
               <div className="flex items-center justify-between">
                 <span className="text-[#86868B]">地点</span>
                 <span className="font-medium text-[#1D1D1F]">
-                  {currentDraft.location || '陆家嘴'}
+                  {currentDraft.location || '未填写'}
                 </span>
               </div>
 
               <div className="flex items-center justify-between">
                 <span className="text-[#86868B]">任务</span>
                 <span className="font-medium text-[#1D1D1F]">
-                  {currentDraft.task || currentDraft.title || '与张总开会'}
+                  {currentDraft.task || currentDraft.title || '未命名事项'}
                 </span>
               </div>
 
@@ -124,7 +124,7 @@ export const ConfirmScheduleView: React.FC = () => {
               <div className="flex items-center justify-between">
                 <span className="text-[#86868B]">提醒</span>
                 <span className="font-medium text-[#007AFF]">
-                  {currentDraft.remindOffset || '提前 30 分钟'}
+                  {currentDraft.remindOffset || '未设置'}
                 </span>
               </div>
             </div>
@@ -152,31 +152,6 @@ export const ConfirmScheduleView: React.FC = () => {
             </div>
           </div>
         )}
-
-        {/* Lightweight AI Modification Micro-chips */}
-        <div className="pt-1">
-          <p className="text-[12px] text-[#86868B] mb-2 px-1">轻触可模拟快捷修改：</p>
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={() => handleSendModification('地点改到陆家嘴')}
-              className="text-[13px] px-3 py-1.5 rounded-[8px] bg-[#FFFFFF] border border-[#D2D2D7] text-[#1D1D1F] hover:bg-[#F2F2F7] active:scale-95 transition-all shadow-apple cursor-pointer"
-            >
-              “地点改到陆家嘴”
-            </button>
-            <button
-              onClick={() => handleSendModification('改到下午4点')}
-              className="text-[13px] px-3 py-1.5 rounded-[8px] bg-[#FFFFFF] border border-[#D2D2D7] text-[#1D1D1F] hover:bg-[#F2F2F7] active:scale-95 transition-all shadow-apple cursor-pointer"
-            >
-              “改到下午4点”
-            </button>
-            <button
-              onClick={() => handleSendModification('提前15分钟提醒')}
-              className="text-[13px] px-3 py-1.5 rounded-[8px] bg-[#FFFFFF] border border-[#D2D2D7] text-[#1D1D1F] hover:bg-[#F2F2F7] active:scale-95 transition-all shadow-apple cursor-pointer"
-            >
-              “提前15分钟提醒”
-            </button>
-          </div>
-        </div>
 
         <div ref={scrollBottomRef} />
       </div>

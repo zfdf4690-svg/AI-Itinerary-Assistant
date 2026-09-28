@@ -248,4 +248,106 @@ export async function parseWithLLMOrLocal(
   };
 }
 
+/* ==============================
+ * PHASE 4-C · Response Generator
+ * 与「理解」（parseWithLLMOrLocal）分离：理解定 intent/slots/action，
+ * 这里只基于完整 Conversation Context 生成自然回复文本。
+ * LLM 不可用/失败时返回 undefined，由调用方用 persona 模板兜底。
+ * ============================== */
+
+export interface ReplyTurn {
+  role: 'user' | 'ai';
+  text: string;
+}
+
+export interface ReplyContext {
+  persona: Persona;
+  llmConfig: LLMConfig;
+  intent: ConversationIntent;
+  state: string;
+  action: string;
+  /** 当前草稿（含本轮合并后的最新值） */
+  draft: Record<string, unknown>;
+  /** 当前缺失字段（英文 key） */
+  missing: string[];
+  /** 对话历史（含本轮用户消息） */
+  turns: ReplyTurn[];
+  latestUtterance: string;
+  /** 系统事实提示（如：日程尚未创建 / 已创建 / 已取消） */
+  facts?: string[];
+}
+
+const FIELD_CN: Record<string, string> = {
+  time: '时间', date: '日期', dateLabel: '日期', location: '地点',
+  task: '任务', title: '标题', matters: '事项',
+  remindOffset: '提醒', remindOffsetMinutes: '提醒', priority: '优先级',
+};
+
+/** 基于完整 Conversation Context 生成 AI 回复（LLM 单轮，历史内联进 system）。 */
+export async function generateReplyWithContext(ctx: ReplyContext): Promise<string | undefined> {
+  if (!(ctx.llmConfig.enabled && ctx.llmConfig.apiKey.trim() && ctx.llmConfig.baseUrl.trim())) {
+    return undefined;
+  }
+  try {
+    const missingCn = ctx.missing.map((k) => FIELD_CN[k] || k);
+    const history = ctx.turns.map((t) => `${t.role === 'user' ? '用户' : '助手'}: ${t.text}`).join('\n');
+    const system = `${ctx.persona.prompt.system}
+
+【你的任务】
+你是对话式日程助手的【AI 回复层】。根据下面给出的完整对话上下文，生成自然、口语化、贴合上下文的回复（1-2 句话）。
+你只负责回复，不执行任何日程创建/修改/取消动作——这些由系统完成，你只生成回复文本。
+
+【硬性约束】
+1. 必须结合完整上下文回复，体现你已经"看到"之前的对话：不要重复用户或你已经说过、且上下文里已存在的信息；不要像第一轮那样重新介绍。
+2. 严禁重新创建新日程、严禁丢失草稿里已有字段、严禁编造上下文里没有出现的时间/地点/任务/人物。
+3. 日程【尚未确认创建】时（状态为 awaiting_supplement / awaiting_clarify / card_ready），回复必须保持"待确认/确认后创建"口吻（如"这样安排可以吗？确认后我就帮你创建"）；严禁出现"已创建""已记下""搞定""安排好了"等完成式措辞。
+4. 若系统事实标注【已创建】或【已取消】，则按该状态回复。
+5. 直接输出回复文本本身：不要 JSON、不要 Markdown、不要引号包裹、不要解释。
+
+【对话上下文】
+当前意图: ${ctx.intent}
+当前状态: ${ctx.state}
+当前系统动作: ${ctx.action}
+当前日程草稿: ${JSON.stringify(ctx.draft, null, 2)}
+当前缺失字段: ${missingCn.length ? missingCn.join('、') : '无'}
+${ctx.facts && ctx.facts.length ? `系统事实: ${ctx.facts.join('；')}` : ''}
+
+【对话历史】
+${history}
+
+【最新用户消息】
+"${ctx.latestUtterance}"`;
+
+    const baseUrl = ctx.llmConfig.baseUrl.replace(/\/+$/, '');
+    const resp = await fetch(`${baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${ctx.llmConfig.apiKey.trim()}`,
+      },
+      body: JSON.stringify({
+        model: ctx.llmConfig.model || 'deepseek-chat',
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: ctx.latestUtterance },
+        ],
+        temperature: 0.7,
+        max_tokens: 200,
+        signal: AbortSignal.timeout(15000),
+      }),
+    });
+    if (!resp.ok) {
+      throw new Error(`Reply LLM HTTP ${resp.status}`);
+    }
+    const data = (await resp.json()) as { choices?: { message?: { content?: string } }[] };
+    const content = data.choices?.[0]?.message?.content;
+    if (!content) return undefined;
+    const cleaned = content.trim().replace(/^["'“”]+|["'“”]+$/g, '').trim();
+    return cleaned || undefined;
+  } catch (err) {
+    console.warn('[Reply Generator 失败，使用模板兜底]', (err as Error).message);
+    return undefined;
+  }
+}
+
 export { checkCompleteness };

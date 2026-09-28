@@ -90,7 +90,8 @@ async function main() {
     check('无 time', !r.data?.draft?.time, JSON.stringify(r.data?.draft));
     check('无 task', !r.data?.draft?.task, JSON.stringify(r.data?.draft));
     const reply = r.data?.turns?.at(-1)?.text || '';
-    check('回复含行程助手', /行程助手/.test(reply), reply);
+    // PHASE 4-C：general_chat 回复由 LLM 基于上下文动态生成（非固定模板），仅断言非空
+    check('回复非空（LLM 动态生成）', reply.length > 0, reply);
   }
 
   // ---------- Test 02：普通问候 ----------

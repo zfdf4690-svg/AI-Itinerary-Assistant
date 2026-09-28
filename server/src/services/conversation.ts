@@ -17,7 +17,7 @@
 import { ActionType, Conversation, ParsedSlots, ScheduleItem, UnderstandResult } from '../types.js';
 import { genId, Repos } from '../db/repos.js';
 import { getPersona } from './personas.js';
-import { parseWithLLMOrLocal } from './llm.js';
+import { parseWithLLMOrLocal, generateReplyWithContext } from './llm.js';
 import { checkCompleteness, extractPreferenceFromText } from './nlu.js';
 import { isRefusal } from '../utils/date.js';
 import { buildScheduleFromSlots, validateRequiredFields } from './schedule.js';
@@ -189,12 +189,24 @@ export async function runTurn(repos: Repos, conv: Conversation, utterance: strin
     return conv;
   }
 
-  // ④ general_chat：普通闲聊 —— 绝不进入 Schedule NLU、绝不生成草稿/卡片
+  // ④ general_chat：普通闲聊 —— 绝不进入 Schedule NLU、绝不生成草稿/卡片；
+  //    回复由 Response Generator 基于完整 Conversation Context 生成，模板仅作 LLM 失败兜底
   if (intent === 'general_chat') {
     conv.state = 'chatting';
     conv.action = 'NONE';
     // 保留既有 draft（若有），上下文不丢；本轮只做闲聊回复
-    const reply = persona.prompt.generalChat;
+    const llmReply = await generateReplyWithContext({
+      persona,
+      llmConfig: repos.runtimeConfig.llm,
+      intent,
+      state: 'chatting',
+      action: 'NONE',
+      draft: conv.draft as Record<string, unknown>,
+      missing: [],
+      turns: conv.turns.map((t) => ({ role: t.role, text: t.text })),
+      latestUtterance: utterance,
+    });
+    const reply = llmReply || persona.prompt.generalChat;
     conv.turns.push({ role: 'ai', text: reply, at: now() });
     conv.updatedAt = now();
     repos.saveConversations();
@@ -232,7 +244,17 @@ export async function runTurn(repos: Repos, conv: Conversation, utterance: strin
       conv.intent = 'general_chat';
       conv.state = 'chatting';
       conv.action = 'NONE';
-      const chatReply = persona.prompt.generalChat;
+      const chatReply = (await generateReplyWithContext({
+        persona,
+        llmConfig: repos.runtimeConfig.llm,
+        intent: 'general_chat',
+        state: 'chatting',
+        action: 'NONE',
+        draft: conv.draft as Record<string, unknown>,
+        missing: [],
+        turns: conv.turns.map((t) => ({ role: t.role, text: t.text })),
+        latestUtterance: utterance,
+      })) || persona.prompt.generalChat;
       conv.turns.push({ role: 'ai', text: chatReply, at: now() });
       conv.updatedAt = now();
       repos.saveConversations();
@@ -250,7 +272,19 @@ export async function runTurn(repos: Repos, conv: Conversation, utterance: strin
     conv.state = decision.state;
     conv.missing = decision.missing;
     conv.action = decision.action;
-    reply = decision.reply;
+    // PHASE 4-C：Response Generator —— 基于完整对话上下文生成自然回复；模板仅兜底
+    reply = (await generateReplyWithContext({
+      persona,
+      llmConfig: repos.runtimeConfig.llm,
+      intent: conv.intent,
+      state: decision.state,
+      action: decision.action,
+      draft: conv.draft as Record<string, unknown>,
+      missing: decision.missing,
+      turns: conv.turns.map((t) => ({ role: t.role, text: t.text })),
+      latestUtterance: utterance,
+      facts: ['日程尚未创建，正在等待用户确认'],
+    })) || decision.reply;
   }
 
   // Preference Memory（任务书 §21）：仅识别用户明确表达的偏好

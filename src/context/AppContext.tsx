@@ -464,14 +464,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     setCurrentDraft(initialDraft);
 
+    const draftComplete = Boolean(initialDraft.time && (initialDraft.task || initialDraft.title));
     const initialMessages: ChatMessage[] = [
       {
         id: `msg-${Date.now()}-ai`,
         sender: 'ai',
-        text: '好的，我按你的意思草拟了一条日程。\n这样安排可以吗？确认后我就帮你创建。',
+        text: draftComplete
+          ? '好的，我按你的意思草拟了一条日程。\n这样安排可以吗？确认后我就帮你创建。'
+          : '我先记下了你刚才的信息。还差时间和任务哦～方便告诉我吗？',
         scheduleDraft: initialDraft,
         timestamp: Date.now(),
-        actionRequired: true
+        actionRequired: draftComplete ? 'SHOW_SCHEDULE_CARD' : 'ASK_REQUIRED'
       }
     ];
 
@@ -499,7 +502,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               text: result.replyText || '好的，我已通过大模型分析并记下来了。\n这样安排可以吗？',
               scheduleDraft: mergedDraft,
               timestamp: Date.now(),
-              actionRequired: true
+              actionRequired: Boolean(mergedDraft.time && (mergedDraft.task || mergedDraft.title))
+                ? 'SHOW_SCHEDULE_CARD'
+                : 'ASK_REQUIRED'
             }
           ]);
         }
@@ -573,6 +578,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             },
           ]);
           setCurrentView('home');
+          // PHASE 4-C：创建成功后立即刷新日程列表（后端为权威数据源）
+          try {
+            const list = await apiListSchedules();
+            if (list?.items) setSchedules(list.items);
+          } catch (err) {
+            console.warn('[backend] 刷新日程列表失败', err);
+          }
           setIsLlmProcessing(false);
           playAudioFeedback('success');
           return;
@@ -623,13 +635,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       aiReplyText = '好的，提醒时间已为你更新。\n这样安排可以吗？';
     }
 
+    const draftComplete = Boolean(newDraft.time && (newDraft.task || newDraft.title));
     const aiMsg: ChatMessage = {
       id: `msg-${Date.now() + 50}-ai`,
       sender: 'ai',
-      text: aiReplyText,
+      text: draftComplete ? aiReplyText : '好的，我已记录。还差时间和任务哦～方便告诉我吗？',
       scheduleDraft: newDraft,
       timestamp: Date.now() + 50,
-      actionRequired: true
+      actionRequired: draftComplete ? 'SHOW_SCHEDULE_CARD' : 'ASK_REQUIRED'
     };
 
     setChatMessages((prev) => [...prev, aiMsg]);

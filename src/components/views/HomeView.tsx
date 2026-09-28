@@ -3,10 +3,12 @@ import { Calendar as CalendarIcon, Mic, Sparkles, Send } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { playAudioFeedback } from '../../utils/audio';
 import { BottomTabBar } from '../common/BottomTabBar';
+import type { ScheduleItem } from '../../types';
 
 /**
- * 01 Home · 对话式聊天首页（去演示化）
- * 输入 → AI 在聊天流内回复（含日程卡片）→ 多轮修改/确认 → 创建成功消息，全程不跳页。
+ * 01 Home · 对话式聊天首页（PHASE 4-C）
+ * 输入 → AI 聊天流回复 → 后端 SHOW_SCHEDULE_CARD 时渲染真实日程卡
+ * （仅展示 draft 真实值，无编造 fallback）→ [编辑][确认创建] → 真正创建并刷新列表。
  */
 export const HomeView: React.FC = () => {
   const {
@@ -15,12 +17,14 @@ export const HomeView: React.FC = () => {
     currentDraft,
     resetChatWithUtterance,
     applyModification,
+    confirmDraftSchedule,
     schedules,
     backendStatus,
     isLlmProcessing,
   } = useApp();
   const [inputText, setInputText] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     scrollRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -48,12 +52,98 @@ export const HomeView: React.FC = () => {
     setCurrentView('listening');
   };
 
+  /** 编辑：聚焦输入框，直接文字修改（对话式编辑，保持上下文） */
+  const handleEditDraft = () => {
+    playAudioFeedback('tap');
+    inputRef.current?.focus();
+  };
+
+  /** 确认创建：调后端 confirm（convIdRef → POST /conversations/:id/confirm） */
+  const handleConfirmDraft = async () => {
+    playAudioFeedback('tap');
+    await confirmDraftSchedule();
+  };
+
+  /**
+   * Schedule Draft 卡片（PHASE 4-C）
+   * 只展示 draft 真实值；空字段显示「未填写/未设置」，绝不编造 15:00/陆家嘴 等默认值。
+   */
+  const ScheduleDraftCard: React.FC<{ draft: Partial<ScheduleItem>; onEdit: () => void; onConfirm: () => void }> = ({ draft, onEdit, onConfirm }) => {
+    const title = draft.task || draft.title || '未命名事项';
+    const timeText = draft.time || '未指定时间';
+    const dateTime = `${draft.dateLabel || '未指定日期'}${draft.time ? ` ${draft.time}` : ''}`;
+    return (
+      <div className="w-full bg-[#FFFFFF] rounded-[20px] p-5 border border-[#E5E5EA] shadow-apple space-y-4 transition-all animate-fadeIn">
+        {/* 顶部：日期 / 时间 / 标题 */}
+        <div className="space-y-1">
+          <div className="text-[14px] font-medium text-[#86868B]">
+            {draft.dateLabel || '未指定日期'}
+          </div>
+          <div className="text-[32px] font-bold text-[#1D1D1F] tabular-nums tracking-tight leading-none">
+            {timeText}
+          </div>
+          <div className="text-[18px] font-semibold text-[#1D1D1F] pt-2">
+            {title}
+          </div>
+        </div>
+
+        <div className="border-t border-[#D2D2D7]/50 pt-3" />
+
+        {/* 结构化明细 */}
+        <div className="space-y-2 text-[14px]">
+          <div className="flex items-center justify-between">
+            <span className="text-[#86868B]">日期时间</span>
+            <span className="font-medium text-[#1D1D1F]">{dateTime}</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-[#86868B]">地点</span>
+            <span className="font-medium text-[#1D1D1F]">{draft.location || '未填写'}</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-[#86868B]">任务</span>
+            <span className="font-medium text-[#1D1D1F]">{title}</span>
+          </div>
+          {draft.matters && (
+            <div className="flex items-center justify-between">
+              <span className="text-[#86868B]">事项</span>
+              <span className="font-medium text-[#1D1D1F]">{draft.matters}</span>
+            </div>
+          )}
+          <div className="flex items-center justify-between">
+            <span className="text-[#86868B]">提醒</span>
+            <span className="font-medium text-[#007AFF]">{draft.remindOffset || '未设置'}</span>
+          </div>
+        </div>
+
+        <div className="border-t border-[#D2D2D7]/50 pt-1" />
+
+        {/* 卡片操作：编辑 / 确认创建 */}
+        <div className="grid grid-cols-2 gap-3 pt-1">
+          <button
+            type="button"
+            onClick={onEdit}
+            className="h-[44px] rounded-[12px] bg-[#F2F2F7] hover:bg-[#E5E5EA] active:scale-98 text-[#1D1D1F] text-[15px] font-medium transition-all flex items-center justify-center cursor-pointer"
+          >
+            编辑
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            className="h-[44px] rounded-[12px] bg-[#007AFF] hover:bg-[#007AFF]/90 active:scale-98 text-[#FFFFFF] text-[15px] font-semibold shadow-apple transition-all flex items-center justify-center cursor-pointer"
+          >
+            确认创建
+          </button>
+        </div>
+      </div>
+    );
+  };
 
   /** 底部输入条（聊天模式） */
   const inputBar = (
     <div className="px-5 py-3 border-t border-[#D2D2D7]/40 bg-[#FFFFFF]">
       <div className="flex items-center gap-2 bg-[#F5F5F7] rounded-[14px] border border-[#D2D2D7] pl-4 pr-1.5 py-1.5 focus-within:border-[#007AFF]/60 focus-within:ring-2 focus-within:ring-[#007AFF]/15 transition-all">
         <input
+          ref={inputRef}
           type="text"
           value={inputText}
           onChange={(e) => setInputText(e.target.value)}
@@ -118,6 +208,14 @@ export const HomeView: React.FC = () => {
                     {m.text}
                   </div>
                 </div>
+                {/* PHASE 4-C：仅 SHOW_SCHEDULE_CARD 时渲染真实 Schedule Card */}
+                {m.actionRequired === 'SHOW_SCHEDULE_CARD' && m.scheduleDraft && (
+                  <ScheduleDraftCard
+                    draft={m.scheduleDraft}
+                    onEdit={handleEditDraft}
+                    onConfirm={handleConfirmDraft}
+                  />
+                )}
               </div>
             )
           )}
@@ -155,6 +253,7 @@ export const HomeView: React.FC = () => {
 
             <div className="w-full flex items-center gap-2 bg-[#FFFFFF] rounded-[16px] border border-[#D2D2D7] pl-4 pr-1.5 py-2 shadow-apple focus-within:border-[#007AFF]/60 focus-within:ring-2 focus-within:ring-[#007AFF]/15 transition-all">
               <input
+                ref={inputRef}
                 type="text"
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
