@@ -18,25 +18,26 @@ export function buildSystemPrompt(persona: Persona, isModification: boolean): st
   return `${persona.prompt.system}
 
 【任务目标】
-分析用户的语音口语输入${isModification ? '或二次修改文本' : ''}，提取日程 5 字段槽位信息，并以【严格的 JSON 格式】返回，不得包含任何 Markdown 标记或多余文字。
+分析用户的语音口语输入${isModification ? '或二次修改文本' : ''}，提取日程 5 字段槽位信息，并以【严格的 JSON 格式】返回，不得包含任何 Markdown 标记或多余文字，不得输出思考过程。
 
-【返回 JSON 规范】
+【返回 JSON 规范 —— 字段白名单，只能包含以下字段】
 {
   "title": "日程标题（简明扼要，如：与张总开会）",
-  "dateLabel": "相对或绝对日期（如：明天 (周二) 或 9月28日 周一）",
+  "dateLabel": "人类可读的日期标签（如：明天 (周二) 或 9月28日 周一；若不确定今天具体几号，输出相对日期如“明天 (周二)”）",
   "time": "24小时制时间（如：15:00）",
-  "location": "地点（如：上海虹桥）",
+  "location": "地点（如：上海虹桥；用户未提到则省略该字段）",
   "task": "任务（如：与张总开会）",
-  "matters": "事项（如：讨论二期项目）",
-  "remindOffset": "提醒提前量（如：提前30分钟、提前15分钟）",
-  "priority": "high | medium | low（商务谈判/高层会议通常为 high）",
+  "matters": "事项（如：讨论二期项目；用户未提到则省略）",
+  "remindOffset": "提醒提前量（如：提前30分钟、提前15分钟；用户未提到则省略）",
+  "priority": "high | medium | low（商务谈判/高层会议通常为 high，默认为 medium）",
   "replyText": "以你的人设口吻给用户的简短回复（1-2句话）"
 }
 
-【注意事项】
-1. 如果用户提供了旧 draft 上下文（例如原本是虹桥，用户说“地点不是虹桥，是陆家嘴”），请务必保留其他未修改字段，只更新修改项。
-2. priority 字段必须是 "high"、"medium"、"low" 之一。
-3. 必须直接输出合法 JSON，不能以 \`\`\`json 开头包裹。`;
+【硬性约束】
+1. 只能输出上述 9 个字段之一，禁止输出 date、attendees、participants、summary、start_time、end_time、description、reminder、status 等任何未列出字段。
+2. 如果用户提供了旧 draft 上下文（例如原本是虹桥，用户说“地点不是虹桥，是陆家嘴”），请务必保留其他未修改字段，只更新修改项。
+3. priority 字段必须是 "high"、"medium"、"low" 之一。
+4. 必须直接输出合法 JSON，不能以 \`\`\`json 开头包裹，不要有任何解释文字。`;
 }
 
 function maskContent(content: string): string {
@@ -48,17 +49,24 @@ function sanitizeSlots(parsed: Record<string, unknown>): ParsedSlots {
   const str = (v: unknown): string | undefined =>
     typeof v === 'string' && v.trim() ? v.trim() : undefined;
 
-  slots.title = str(parsed.title);
-  slots.task = str(parsed.task) || slots.title;
-  slots.time = str(parsed.time);
-  slots.dateLabel = str(parsed.dateLabel);
-  slots.location = str(parsed.location);
-  slots.matters = str(parsed.matters);
-  slots.remindOffset = str(parsed.remindOffset);
+  // 字段别名兼容：部分代理模型（如忽略 response_format 的第三方托管模型）
+  // 会输出 summary/start_time/participants/date 等近似字段，这里归一化。
+  const title = str(parsed.title) ?? str(parsed.summary) ?? str(parsed.event) ?? str(parsed.name);
+  const time = str(parsed.time) ?? str(parsed.start_time) ?? str(parsed.startTime) ?? str(parsed.start);
+  const dateLabel = str(parsed.dateLabel) ?? str(parsed.date) ?? str(parsed.day) ?? str(parsed.when);
+  const task = str(parsed.task) ?? title;
+
+  slots.title = title;
+  slots.task = task;
+  slots.time = time;
+  slots.dateLabel = dateLabel;
+  slots.location = str(parsed.location) ?? str(parsed.place) ?? str(parsed.address);
+  slots.matters = str(parsed.matters) ?? str(parsed.description) ?? str(parsed.agenda);
+  slots.remindOffset = str(parsed.remindOffset) ?? str(parsed.reminder) ?? str(parsed.remind);
   if (parsed.priority === 'high' || parsed.priority === 'medium' || parsed.priority === 'low') {
     slots.priority = parsed.priority as SchedulePriority;
   }
-  const reply = str(parsed.replyText);
+  const reply = str(parsed.replyText) ?? str(parsed.reply);
   if (reply) slots.replyText = reply;
 
   // 校验时间格式

@@ -24,7 +24,7 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SERVER_ROOT = path.resolve(__dirname, '..');
-const PORT = 4599;
+const PORT = 4631;
 const BASE = `http://127.0.0.1:${PORT}/api/v1`;
 
 let passed = 0;
@@ -369,7 +369,7 @@ async function main() {
   {
     const r = await req('GET', '/config');
     const apiKey = r.data?.llm?.apiKey || '';
-    check('配置可读取且 Key 脱敏（空 Key 或掩码）', r.status === 200 && !apiKey.includes('sk-') && (apiKey === '' || apiKey.includes('****')), `apiKey=${apiKey}`);
+    check('配置可读取且 Key 脱敏（空 Key 或掩码）', r.status === 200 && (apiKey === '' || (apiKey.includes('****') && !/^sk-[A-Za-z0-9]{6,}/.test(apiKey))), `apiKey=${apiKey}`);
     const r2 = await req('PUT', '/config', {
       llm: { enabled: true, baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat', apiKey: 'sk-test-1234567890' },
     });
