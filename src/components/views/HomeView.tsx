@@ -60,8 +60,13 @@ export const HomeView: React.FC = () => {
   const renderScheduleCard = (draft: Partial<ScheduleItem>) => (
     <div className="w-full bg-[#FFFFFF] rounded-[20px] p-5 border border-[#E5E5EA] shadow-apple space-y-4 transition-all animate-fadeIn">
       <div className="space-y-1">
-        <div className="text-[14px] font-medium text-[#86868B]">
-          {draft.dateLabel || '明天'}
+        <div className="flex items-center justify-between">
+          <span className="text-[14px] font-medium text-[#86868B]">
+            {draft.dateLabel || '明天'}
+          </span>
+          <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-[#FFD60A]/15 text-[#B8860B] text-[11px] font-semibold">
+            ⏳ 待确认
+          </span>
         </div>
         <div className="text-[32px] font-bold text-[#1D1D1F] tabular-nums tracking-tight leading-none">
           {draft.time || '15:00'}
@@ -119,7 +124,7 @@ export const HomeView: React.FC = () => {
           disabled={isLlmProcessing}
           className="h-[44px] rounded-[12px] bg-[#007AFF] hover:bg-[#007AFF]/90 active:scale-98 text-[#FFFFFF] text-[15px] font-semibold shadow-apple transition-all flex items-center justify-center cursor-pointer disabled:opacity-60"
         >
-          确认
+          确认创建
         </button>
       </div>
     </div>

@@ -24,16 +24,16 @@ export const PERSONAS: Record<PersonaId, Persona> = {
         if (field === 'remindOffset') return '要不要提前提醒你呀？比如提前30分钟？不设置也可以哦～';
         return '还想补充点什么吗？不说也可以哒～';
       },
-      refuseAccepted: '好嘞！那我先按目前的信息记下来～',
+      refuseAccepted: '好嘞！那我先按目前的信息草拟，确认后帮你正式创建～',
       askRequired: (fields) => {
         const names = fields.map((f) => (f === 'time' ? '时间' : '任务')).join('和');
         return `还差个${names}哦～方便告诉我吗？这个可不能少，不然我会记错的！`;
       },
-      confirmCard: '已经帮你妥妥记下啦，这样安排可以吗？',
+      confirmCard: '我先帮你草拟好了，这样安排可以吗？确认后我就正式创建～',
       confirmCreated: (title) => `搞定！已为你创建「${title}」，到点我一定准时敲你～`,
       updated: (fields) => {
         const names = fields.map((f) => ({ time: '时间', location: '地点', task: '任务', matters: '事项', remindOffset: '提醒' } as Record<string, string>)[f]).filter(Boolean).join('、');
-        return `好滴！${names}已经更新啦，这样安排可以吗？`;
+        return `好滴！${names}已更新，确认后帮你正式创建，可以吗？`;
       },
       reminder: (title, minutes) => `宝！！还有${minutes}分钟就要开始「${title}」啦！你可千万别忘了哦～`,
       eveningReview: (count) => `宝～今天${count}个行程全部打卡完成！你今天超棒的，早点休息，明天又是元气满满的一天～`,
@@ -57,16 +57,16 @@ export const PERSONAS: Record<PersonaId, Persona> = {
         if (field === 'remindOffset') return '需要设置提前提醒吗？比如提前30分钟，也可以稍后再定。';
         return '还有其他想补充的信息吗？没有的话，我们就可以先记下来。';
       },
-      refuseAccepted: '好的，那我先按目前的信息记下来。',
+      refuseAccepted: '好的，我先按目前的信息草拟，确认后再正式创建。',
       askRequired: (fields) => {
         const names = fields.map((f) => (f === 'time' ? '时间' : '任务')).join('和');
         return `为了帮你准确安排，还需要${names}信息，方便告诉我吗？`;
       },
-      confirmCard: '好的，已为你细心备忘。这样安排可以吗？',
+      confirmCard: '好的，我为你草拟了一份安排。确认后我再正式创建，可以吗？',
       confirmCreated: (title) => `已为你建立日程「${title}」。放宽心，时间到了我会轻声提醒你。`,
       updated: (fields) => {
         const names = fields.map((f) => ({ time: '时间', location: '地点', task: '任务', matters: '事项', remindOffset: '提醒' } as Record<string, string>)[f]).filter(Boolean).join('、');
-        return `好的，${names}已为你更新。这样安排可以吗？`;
+        return `好的，${names}已更新。确认后我再正式创建，可以吗？`;
       },
       reminder: (title, minutes) => `距离「${title}」还有${minutes}分钟，稍微整理一下案头，从容准备出发吧。`,
       eveningReview: (count) => `今天完成了${count}项重要事务。辛苦了，喝一杯温水，愿你今夜有安稳的好眠。`,
@@ -90,16 +90,16 @@ export const PERSONAS: Record<PersonaId, Persona> = {
         if (field === 'remindOffset') return '是否设置提前提醒？默认可设为提前30分钟。';
         return '是否还有补充信息？';
       },
-      refuseAccepted: '收到，按当前信息创建。',
+      refuseAccepted: '收到，按当前信息草拟，确认后创建。',
       askRequired: (fields) => {
         const names = fields.map((f) => (f === 'time' ? '时间' : '任务')).join('、');
         return `缺少必填字段：${names}。请补充后继续。`;
       },
-      confirmCard: '日程已解析，请确认以下安排。',
+      confirmCard: '日程已解析（尚未创建），请确认以下安排。',
       confirmCreated: (title) => `日程已建立：「${title}」。时间提醒与调度已准确定位。`,
       updated: (fields) => {
         const names = fields.map((f) => ({ time: '时间', location: '地点', task: '任务', matters: '事项', remindOffset: '提醒' } as Record<string, string>)[f]).filter(Boolean).join('、');
-        return `${names}已更新，请确认最新安排。`;
+        return `${names}已更新，请确认最新安排（尚未创建）。`;
       },
       reminder: (title, minutes) => `提醒：距「${title}」还有${minutes}分钟，关键材料与路线建议已就绪。`,
       eveningReview: (count) => `今日高效执行${count}个关键节点，推进目标扎实有效。明日日程已排期，建议按时休整。`,

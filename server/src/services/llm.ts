@@ -37,7 +37,8 @@ export function buildSystemPrompt(persona: Persona, isModification: boolean): st
 1. 只能输出上述 9 个字段之一，禁止输出 date、attendees、participants、summary、start_time、end_time、description、reminder、status 等任何未列出字段。
 2. 如果用户提供了旧 draft 上下文（例如原本是虹桥，用户说“地点不是虹桥，是陆家嘴”），请务必保留其他未修改字段，只更新修改项。
 3. priority 字段必须是 "high"、"medium"、"low" 之一。
-4. 必须直接输出合法 JSON，不能以 \`\`\`json 开头包裹，不要有任何解释文字。`;
+4. 必须直接输出合法 JSON，不能以 \`\`\`json 开头包裹，不要有任何解释文字。
+5. replyText 措辞规范【关键】：此刻日程【尚未创建】，只是在与你确认。必须使用“待确认/确认后创建”口吻（如：“你看这样安排可以吗？确认后我就帮你创建”、“我先帮你草拟好了，这样安排可以吗？”）。严禁出现“已创建”“已记下”“搞定”“安排好了”“已帮你记下”等任何已完成措辞。若用户只是补充/修改信息，同样保持“待确认”口吻。`;
 }
 
 function maskContent(content: string): string {
