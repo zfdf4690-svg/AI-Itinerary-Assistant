@@ -3,7 +3,7 @@
  * PHASE 4-B：除日程槽位外，同时输出 intent / confidence；
  * 未配置 / 调用失败 / 输出非法时自动降级为本地规则 NLU（PRD §4 双通道）。
  */
-import { ConversationIntent, LLMConfig, ParsedSlots, Persona, SchedulePriority } from '../types.js';
+import { ConflictResult, ConversationIntent, LLMConfig, ParsedSlots, Persona, SchedulePriority } from '../types.js';
 import { checkCompleteness, ensureDefaultDate, normalizeRemind, parseUtterance } from './nlu.js';
 import { parseRemindOffset } from '../utils/date.js';
 
@@ -191,6 +191,13 @@ export async function parseWithLLMOrLocal(
         slots = {};
       }
 
+      // PHASE 4-D · D3 matters 收紧：关键词只是 gate，不代表自动产生 matters。
+      // 此时 slots 仅含 LLM 本轮输出；无明确事项语义（事项/议题/内容/主题/议程/讨论/重点/要点）
+      // 即丢弃本轮 matters，禁止凭上下文凭空推断（draft 历史 matters 由校准段 {...currentDraft, ...} 保留）。
+      if (slots.matters && !hasMattersSignal(utterance)) {
+        delete slots.matters;
+      }
+
       // 本地 NLU 补充校准：LLM 漏掉的字段用规则引擎补全（仅限非闲聊路径）
       if (llmIntent !== 'general_chat') {
         const localSlots = parseUtterance(utterance, undefined);
@@ -275,6 +282,8 @@ export interface ReplyContext {
   latestUtterance: string;
   /** 系统事实提示（如：日程尚未创建 / 已创建 / 已取消） */
   facts?: string[];
+  /** PHASE 4-D · D3：确定性冲突检测结果（程序计算；LLM 只负责自然表达，禁止自行判断） */
+  conflict?: ConflictResult;
 }
 
 const FIELD_CN: Record<string, string> = {
@@ -282,6 +291,17 @@ const FIELD_CN: Record<string, string> = {
   task: '任务', title: '标题', matters: '事项',
   remindOffset: '提醒', remindOffsetMinutes: '提醒', priority: '优先级',
 };
+
+/**
+ * PHASE 4-D · D3 matters 收紧：关键词只是 gate，不代表自动产生 matters。
+ * 仅当用户语句包含明确"事项/议题/内容/主题/议程/讨论/重点/要点"语义时才允许写入 matters；
+ * 否则即使 LLM 凭上下文推断出 matters，也必须丢弃（不得凭空推断）。
+ */
+const MATTERS_SIGNAL_RE = /事项|议题|内容|主题|议程|讨论|重点|要点/;
+
+export function hasMattersSignal(text: string): boolean {
+  return MATTERS_SIGNAL_RE.test((text || '').trim());
+}
 
 /** 基于完整 Conversation Context 生成 AI 回复（LLM 单轮，历史内联进 system）。 */
 export async function generateReplyWithContext(ctx: ReplyContext): Promise<string | undefined> {
@@ -291,6 +311,22 @@ export async function generateReplyWithContext(ctx: ReplyContext): Promise<strin
   try {
     const missingCn = ctx.missing.map((k) => FIELD_CN[k] || k);
     const history = ctx.turns.map((t) => `${t.role === 'user' ? '用户' : '助手'}: ${t.text}`).join('\n');
+
+    // PHASE 4-D · D3：冲突事实（仅当存在时注入；LLM 只表达，不判断）
+    let conflictBlock = '';
+    if (ctx.conflict && ctx.conflict.hasConflict && ctx.conflict.conflicts.length > 0) {
+      const list = ctx.conflict.conflicts
+        .map((c) => `- ${c.date} ${c.time} · ${c.task}${c.location ? ` · ${c.location}` : ''}`)
+        .join('\n');
+      const levelDesc = ctx.conflict.level === 'exact'
+        ? '时间完全重叠（exact）'
+        : '时间相邻（nearby，可能比较赶）';
+      conflictBlock = `
+【冲突检测结果（由系统确定性程序计算，仅可引用以下事实，严禁自行新增日程信息）】
+检测到 ${levelDesc}，冲突日程如下：
+${list}
+表达要求：温和提醒用户存在时间冲突并给出建议（如调整时间），但【绝不能】擅自修改时间、擅自创建/取消日程、替用户做决定；最终由用户选择“调整时间”或“仍按原时间创建”。`;
+    }
     const system = `${ctx.persona.prompt.system}
 
 【你的任务】
@@ -310,7 +346,7 @@ export async function generateReplyWithContext(ctx: ReplyContext): Promise<strin
 当前系统动作: ${ctx.action}
 当前日程草稿: ${JSON.stringify(ctx.draft, null, 2)}
 当前缺失字段: ${missingCn.length ? missingCn.join('、') : '无'}
-${ctx.facts && ctx.facts.length ? `系统事实: ${ctx.facts.join('；')}` : ''}
+${ctx.facts && ctx.facts.length ? `系统事实: ${ctx.facts.join('；')}` : ''}${conflictBlock}
 
 【对话历史】
 ${history}

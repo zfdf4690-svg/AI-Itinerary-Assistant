@@ -21,6 +21,7 @@ import { parseWithLLMOrLocal, generateReplyWithContext } from './llm.js';
 import { checkCompleteness, extractPreferenceFromText } from './nlu.js';
 import { isRefusal } from '../utils/date.js';
 import { buildScheduleFromSlots, validateRequiredFields } from './schedule.js';
+import { checkScheduleConflict } from './conflictChecker.js';
 import { recordEntities, recordEvent, setPreference } from './memory.js';
 import { routeIntent } from './intentRouter.js';
 
@@ -231,7 +232,26 @@ export async function runTurn(repos: Repos, conv: Conversation, utterance: strin
       conv.state = 'card_ready';
       conv.missing = [];
       conv.action = 'SHOW_SCHEDULE_CARD';
-      reply = persona.prompt.refuseAccepted;
+            // PHASE 4-D · D3：进入卡片即做确定性冲突检查（refusal 快速路径同样执行，不跳过）
+      if (conv.draft.date && conv.draft.time) {
+        conv.conflict = checkScheduleConflict(repos, { date: conv.draft.date, time: conv.draft.time });
+      } else {
+        conv.conflict = undefined;
+      }
+      // PHASE 4-C：普通对话优先 LLM 生成回复（含冲突提醒，模板仅兜底）
+      reply = (await generateReplyWithContext({
+        persona,
+        llmConfig: repos.runtimeConfig.llm,
+        intent: conv.intent,
+        state: conv.state,
+        action: conv.action,
+        draft: conv.draft as Record<string, unknown>,
+        missing: [],
+        turns: conv.turns.map((t) => ({ role: t.role, text: t.text })),
+        latestUtterance: utterance,
+        facts: ['日程尚未创建，正在等待用户确认'],
+        conflict: conv.conflict,
+      })) || persona.prompt.refuseAccepted;
     }
   } else {
     const prevDraft = { ...conv.draft };
@@ -272,6 +292,13 @@ export async function runTurn(repos: Repos, conv: Conversation, utterance: strin
     conv.state = decision.state;
     conv.missing = decision.missing;
     conv.action = decision.action;
+    // PHASE 4-D · D3：仅卡片阶段（必填完整、时间已确定）做确定性冲突检查；
+    // 未进卡片（澄清/追问）不检查，避免过早打扰。
+    if (decision.action === 'SHOW_SCHEDULE_CARD' && conv.draft.date && conv.draft.time) {
+      conv.conflict = checkScheduleConflict(repos, { date: conv.draft.date, time: conv.draft.time });
+    } else {
+      conv.conflict = undefined;
+    }
     // PHASE 4-C：Response Generator —— 基于完整对话上下文生成自然回复；模板仅兜底
     reply = (await generateReplyWithContext({
       persona,
@@ -284,6 +311,7 @@ export async function runTurn(repos: Repos, conv: Conversation, utterance: strin
       turns: conv.turns.map((t) => ({ role: t.role, text: t.text })),
       latestUtterance: utterance,
       facts: ['日程尚未创建，正在等待用户确认'],
+      conflict: conv.conflict,
     })) || decision.reply;
   }
 
@@ -322,6 +350,11 @@ export async function confirmConversation(repos: Repos, conv: Conversation): Pro
   }
 
   const schedule = buildScheduleFromSlots(repos, conv.draft as ParsedSlots);
+  // PHASE 4-D · D3：Confirm 时重算一次冲突，防止卡片阶段的结果过期；
+  // 即使冲突发生变化，也只更新提示（随 response 返回前端）并交由用户决定，绝不自动拒绝创建。
+  if (conv.draft.date && conv.draft.time) {
+    conv.conflict = checkScheduleConflict(repos, { date: conv.draft.date, time: conv.draft.time });
+  }
   repos.schedules.unshift(schedule);
   repos.saveSchedules();
 

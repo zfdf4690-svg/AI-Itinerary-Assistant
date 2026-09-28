@@ -67,6 +67,21 @@ export interface ScheduleItem {
 /** 前端下一步动作（任务书 §8/§9 枚举；本地降级时兼容布尔） */
 export type ActionType = 'ASK_REQUIRED' | 'ASK_OPTIONAL' | 'SHOW_SCHEDULE_CARD' | 'NONE';
 
+/** PHASE 4-D · D3：冲突检测结果（前端镜像，与后端 ConflictResult 结构一致） */
+export interface ConflictEntry {
+  scheduleId: string;
+  date: string;
+  time: string;
+  task: string;
+  location: string;
+}
+
+export interface ConflictResult {
+  hasConflict: boolean;
+  level: 'none' | 'exact' | 'nearby';
+  conflicts: ConflictEntry[];
+}
+
 export interface ChatMessage {
   id: string;
   sender: 'ai' | 'user';
@@ -74,6 +89,8 @@ export interface ChatMessage {
   scheduleDraft?: Partial<ScheduleItem>;
   timestamp: number;
   actionRequired?: ActionType | boolean;
+  /** PHASE 4-D · D3：该消息关联的冲突检测结果（用于卡片上方展示 Conflict Notice） */
+  conflict?: ConflictResult;
 }
 
 /**

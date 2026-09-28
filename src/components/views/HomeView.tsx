@@ -339,11 +339,32 @@ export const HomeView: React.FC = () => {
                 </div>
                 {/* PHASE 4-C：仅 SHOW_SCHEDULE_CARD 时渲染真实 Schedule Card */}
                 {m.actionRequired === 'SHOW_SCHEDULE_CARD' && m.scheduleDraft && (
-                  <ScheduleDraftCard
-                    draft={m.scheduleDraft}
-                    onEdit={handleEditDraft}
-                    onConfirm={handleConfirmDraft}
-                  />
+                  <>
+                    {/* PHASE 4-D · D3：冲突提醒（确定性结果；仅提醒，不阻止用户创建） */}
+                    {m.conflict && m.conflict.hasConflict && m.conflict.conflicts.length > 0 && (
+                      <div className="bg-[#FFF7E6] border border-[#FFB800]/50 rounded-[14px] p-3 space-y-1.5 animate-fadeIn">
+                        <div className="text-[13px] font-semibold text-[#B25E00]">
+                          {m.conflict.level === 'exact' ? '时间冲突提醒' : '时间相邻提醒'}
+                        </div>
+                        {m.conflict.conflicts.map((c) => (
+                          <div key={c.scheduleId} className="text-[12px] text-[#8A5A00] leading-snug">
+                            {c.date} {c.time} · {c.task}
+                            {c.location ? ` · ${c.location}` : ''}
+                          </div>
+                        ))}
+                        <div className="text-[11px] text-[#8A5A00] leading-snug">
+                          {m.conflict.level === 'exact'
+                            ? '与已有日程时间重叠。可点击编辑调整时间，或仍按此时间创建。'
+                            : '与已有日程时间相邻，可能会比较赶。可点击编辑调整时间，或仍按此时间创建。'}
+                        </div>
+                      </div>
+                    )}
+                    <ScheduleDraftCard
+                      draft={m.scheduleDraft}
+                      onEdit={handleEditDraft}
+                      onConfirm={handleConfirmDraft}
+                    />
+                  </>
                 )}
               </div>
             )

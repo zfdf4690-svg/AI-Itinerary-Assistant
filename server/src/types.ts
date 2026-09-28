@@ -66,6 +66,26 @@ export type ActionType =
   | 'SHOW_SCHEDULE_CARD' // 展示日程卡片
   | 'NONE';              // 无动作（已创建/输入中/闲聊）
 
+/**
+ * PHASE 4-D · D3：确定性冲突检测结果（程序计算，不经过 LLM 判断）。
+ * exact = 同一天 + 同一时间；nearby = 同一天 + 时间差 ≤ 60min（仅提醒，不阻止创建）。
+ */
+export type ConflictLevel = 'none' | 'exact' | 'nearby';
+
+export interface ConflictEntry {
+  scheduleId: string;
+  date: string;
+  time: string;
+  task: string;
+  location: string;
+}
+
+export interface ConflictResult {
+  hasConflict: boolean;
+  level: ConflictLevel;
+  conflicts: ConflictEntry[];
+}
+
 export interface ConversationTurn {
   role: 'user' | 'ai';
   text: string;
@@ -87,6 +107,8 @@ export interface Conversation {
   source: 'llm' | 'local';
   /** 前端下一步动作（任务书枚举） */
   action: ActionType;
+  /** PHASE 4-D · D3：确定性冲突检测结果（卡片阶段计算，confirm 时重算） */
+  conflict?: ConflictResult;
   createdAt: number;
   updatedAt: number;
 }

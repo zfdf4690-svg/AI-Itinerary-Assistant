@@ -13,6 +13,21 @@ const BACKEND_URL_KEY = 'ai_schedule_backend_url';
 
 export type BackendActionType = 'ASK_REQUIRED' | 'ASK_OPTIONAL' | 'SHOW_SCHEDULE_CARD' | 'NONE';
 
+/** PHASE 4-D · D3：后端确定性冲突检测结果（程序计算，非 LLM 判断） */
+export interface BackendConflictEntry {
+  scheduleId: string;
+  date: string;
+  time: string;
+  task: string;
+  location: string;
+}
+
+export interface BackendConflictResult {
+  hasConflict: boolean;
+  level: 'none' | 'exact' | 'nearby';
+  conflicts: BackendConflictEntry[];
+}
+
 export interface BackendUnderstandResult {
   state: string;
   slots: Partial<ScheduleItem>;
@@ -34,6 +49,8 @@ export interface BackendConversation {
   turns: { role: 'user' | 'ai'; text: string; at: number }[];
   source: 'llm' | 'local';
   action: BackendActionType;
+  /** PHASE 4-D · D3：冲突检测结果（卡片阶段/confirm 时由后端计算） */
+  conflict?: BackendConflictResult;
   createdAt: number;
   updatedAt: number;
 }

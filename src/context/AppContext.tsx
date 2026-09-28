@@ -433,6 +433,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             scheduleDraft: draft,
             timestamp: Date.now(),
             actionRequired: conv.action,
+            conflict: conv.conflict,
           },
         ]);
         // 对话式模式：由首页聊天流承接，视图保持 home（不跳转独立确认页）
@@ -616,6 +617,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             scheduleDraft: newDraft,
             timestamp: Date.now(),
             actionRequired: action,
+            // PHASE 4-D · D3：透传后端确定性冲突检测结果，供卡片上方渲染 Conflict Notice
+            conflict: conv?.conflict,
           },
         ]);
         // 对话式模式：由首页聊天流承接，视图保持 home（不跳转独立确认页）
