@@ -3,7 +3,6 @@ import { Calendar as CalendarIcon, Mic, Sparkles, Send } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { playAudioFeedback } from '../../utils/audio';
 import { BottomTabBar } from '../common/BottomTabBar';
-import { ScheduleItem } from '../../types';
 
 /**
  * 01 Home · 对话式聊天首页（去演示化）
@@ -16,7 +15,6 @@ export const HomeView: React.FC = () => {
     currentDraft,
     resetChatWithUtterance,
     applyModification,
-    confirmDraftSchedule,
     schedules,
     backendStatus,
     isLlmProcessing,
@@ -50,85 +48,6 @@ export const HomeView: React.FC = () => {
     setCurrentView('listening');
   };
 
-  const handleConfirm = () => {
-    if (!currentDraft) return;
-    playAudioFeedback('success');
-    void confirmDraftSchedule();
-  };
-
-  /** 日程卡片（Apple Card 风格） */
-  const renderScheduleCard = (draft: Partial<ScheduleItem>) => (
-    <div className="w-full bg-[#FFFFFF] rounded-[20px] p-5 border border-[#E5E5EA] shadow-apple space-y-4 transition-all animate-fadeIn">
-      <div className="space-y-1">
-        <div className="flex items-center justify-between">
-          <span className="text-[14px] font-medium text-[#86868B]">
-            {draft.dateLabel || '明天'}
-          </span>
-          <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-[#FFD60A]/15 text-[#B8860B] text-[11px] font-semibold">
-            ⏳ 待确认
-          </span>
-        </div>
-        <div className="text-[32px] font-bold text-[#1D1D1F] tabular-nums tracking-tight leading-none">
-          {draft.time || '15:00'}
-        </div>
-        <div className="text-[18px] font-semibold text-[#1D1D1F] pt-2">
-          {draft.task || draft.title || '日程安排'}
-        </div>
-      </div>
-
-      <div className="border-t border-[#D2D2D7]/50 pt-3" />
-
-      <div className="space-y-2 text-[14px]">
-        <div className="flex items-center justify-between">
-          <span className="text-[#86868B]">时间</span>
-          <span className="font-medium text-[#1D1D1F]">
-            {draft.dateLabel || '明天'} {draft.time || '15:00'}
-          </span>
-        </div>
-        <div className="flex items-center justify-between">
-          <span className="text-[#86868B]">地点</span>
-          <span className="font-medium text-[#1D1D1F]">{draft.location || '未指定'}</span>
-        </div>
-        <div className="flex items-center justify-between">
-          <span className="text-[#86868B]">任务</span>
-          <span className="font-medium text-[#1D1D1F]">{draft.task || draft.title || '日程安排'}</span>
-        </div>
-        {draft.matters && (
-          <div className="flex items-center justify-between">
-            <span className="text-[#86868B]">事项</span>
-            <span className="font-medium text-[#1D1D1F]">{draft.matters}</span>
-          </div>
-        )}
-        <div className="flex items-center justify-between">
-          <span className="text-[#86868B]">提醒</span>
-          <span className="font-medium text-[#007AFF]">{draft.remindOffset || '提前 30 分钟'}</span>
-        </div>
-      </div>
-
-      <div className="border-t border-[#D2D2D7]/50 pt-1" />
-
-      <div className="grid grid-cols-2 gap-3 pt-1">
-        <button
-          type="button"
-          onClick={() => {
-            playAudioFeedback('tap');
-            setCurrentView('schedule_edit');
-          }}
-          className="h-[44px] rounded-[12px] bg-[#F2F2F7] hover:bg-[#E5E5EA] active:scale-98 text-[#1D1D1F] text-[15px] font-medium transition-all flex items-center justify-center cursor-pointer"
-        >
-          编辑
-        </button>
-        <button
-          type="button"
-          onClick={handleConfirm}
-          disabled={isLlmProcessing}
-          className="h-[44px] rounded-[12px] bg-[#007AFF] hover:bg-[#007AFF]/90 active:scale-98 text-[#FFFFFF] text-[15px] font-semibold shadow-apple transition-all flex items-center justify-center cursor-pointer disabled:opacity-60"
-        >
-          确认创建
-        </button>
-      </div>
-    </div>
-  );
 
   /** 底部输入条（聊天模式） */
   const inputBar = (
@@ -199,9 +118,6 @@ export const HomeView: React.FC = () => {
                     {m.text}
                   </div>
                 </div>
-                {m.scheduleDraft && Object.keys(m.scheduleDraft).length > 0 && (
-                  <div className="pl-1">{renderScheduleCard(m.scheduleDraft)}</div>
-                )}
               </div>
             )
           )}

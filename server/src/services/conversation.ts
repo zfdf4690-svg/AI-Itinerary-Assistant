@@ -44,6 +44,12 @@ function lastUserText(conv: Conversation): string {
   return '';
 }
 
+/** 确认意图识别：用户明确说"对/可以/好/确认"等肯定词（整句精确匹配，避免误伤修改句） */
+export function isAffirmative(text: string): boolean {
+  const t = text.trim().replace(/[，。！？、,.!?\s]+/g, '');
+  return /^(对|对的|是|是的|可以|可以了|行|行吧|好|好的|好呀|好滴|没问题|确认|确定|就这样|就这么定|嗯|嗯嗯|ok|okay|sure|yes|y)(啊|呀|吧|呢|的|了|哦|啦)?((可以|行|对|好|确认|确定|就这样|没问题))?$/i.test(t);
+}
+
 function changedFields(prev: Partial<ScheduleItem>, next: Partial<ScheduleItem>): string[] {
   const keys = ['time', 'date', 'location', 'task', 'matters', 'remindOffset', 'remindOffsetMinutes', 'priority'];
   return keys.filter((k) => {
@@ -140,6 +146,18 @@ export async function runTurn(repos: Repos, conv: Conversation, utterance: strin
     conv.draft = {};
     conv.missing = [];
     conv.state = 'input';
+  }
+
+  // 用户确认意图：草稿必填完整 → 直接确认创建（纯对话流：不出卡片，确认后才创建）
+  if (isAffirmative(utterance)) {
+    const validation = validateRequiredFields(conv.draft);
+    if (validation.ok) {
+      const confirmed = await confirmConversation(repos, conv);
+      if ('schedule' in confirmed) {
+        return confirmed.conv;
+      }
+      // 校验失败（理论上必填已满足）→ 走正常流程
+    }
   }
 
   const refusal = isRefusal(utterance);

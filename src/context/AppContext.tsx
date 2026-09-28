@@ -559,6 +559,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           replyText = result.replyText || '好的，我已为你更新相关信息。\n这样安排可以吗？';
         }
 
+        // 用户输入确认词（对/可以/好）→ 后端已创建日程 → 清草稿 + 成功消息入聊天
+        if (conv && conv.state === 'created') {
+          const createdTitle = (conv.draft && (conv.draft.title || conv.draft.task)) || '新日程';
+          setCurrentDraft(null);
+          setChatMessages((prev) => [
+            ...prev,
+            {
+              id: `msg-${Date.now()}-created`,
+              sender: 'ai',
+              text: `已为你创建日程：${createdTitle}，我会在事前提醒你。`,
+              timestamp: Date.now(),
+            },
+          ]);
+          setCurrentView('home');
+          setIsLlmProcessing(false);
+          playAudioFeedback('success');
+          return;
+        }
+
         const newDraft: Partial<ScheduleItem> = slots || currentDraft;
         setCurrentDraft(newDraft);
         setChatMessages((prev) => [
