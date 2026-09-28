@@ -102,85 +102,10 @@ const DEFAULT_REMINDER_CONFIG: DailyReminderConfig = {
   }
 };
 
-const INITIAL_SCHEDULES: ScheduleItem[] = [
-  {
-    id: 'sched-1',
-    time: '09:00',
-    dateLabel: '4月23日 周二',
-    title: '团队例会',
-    location: '上海 · 会议室A',
-    task: '团队例会',
-    matters: '季度规划与进度对齐',
-    remindOffset: '提前15分钟',
-    accentColor: 'blue',
-    priority: 'medium',
-    hasAlarm: true,
-    status: 'active',
-    createdAt: Date.now() - 36000000
-  },
-  {
-    id: 'sched-2',
-    time: '11:30',
-    dateLabel: '4月23日 周二',
-    title: '客户拜访',
-    location: '陆家嘴 · 3号楼',
-    task: '客户拜访',
-    matters: '商务方案演示',
-    remindOffset: '提前30分钟',
-    accentColor: 'red',
-    priority: 'high',
-    hasAlarm: true,
-    status: 'active',
-    createdAt: Date.now() - 28000000
-  },
-  {
-    id: 'sched-3',
-    time: '14:00',
-    dateLabel: '4月23日 周二',
-    title: '项目评审',
-    location: '线上会议',
-    task: '项目评审',
-    matters: 'UI及交互方案验收',
-    remindOffset: '提前10分钟',
-    accentColor: 'blue',
-    priority: 'medium',
-    hasAlarm: true,
-    status: 'active',
-    createdAt: Date.now() - 20000000
-  },
-  {
-    id: 'sched-4',
-    time: '16:00',
-    dateLabel: '4月23日 周二',
-    title: '与张总开会',
-    location: '陆家嘴 · 3号楼',
-    task: '与张总开会',
-    matters: '讨论二期项目推进',
-    remindOffset: '提前30分钟',
-    accentColor: 'blue',
-    priority: 'high',
-    hasAlarm: true,
-    status: 'active',
-    createdAt: Date.now() - 10000000
-  },
-  {
-    id: 'sched-5',
-    time: '19:00',
-    dateLabel: '4月23日 周二',
-    title: '晚餐',
-    location: '徐汇 · 绿地餐厅',
-    task: '晚餐',
-    matters: '朋友聚餐',
-    remindOffset: '提前30分钟',
-    accentColor: 'orange',
-    priority: 'low',
-    hasAlarm: false,
-    status: 'active',
-    createdAt: Date.now() - 5000000
-  }
-];
-
 const AppContext = createContext<AppContextType | null>(null);
+
+/** 历史内置演示日程 id（去演示化后仅用于识别并清理旧 mock 缓存） */
+const MOCK_SCHEDULE_IDS = new Set(['sched-1', 'sched-2', 'sched-3', 'sched-4', 'sched-5']);
 
 /** 会话流动作是否需要进入澄清视图 */
 function needsClarify(action: BackendActionType | boolean | undefined): boolean {
@@ -207,10 +132,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const saved = localStorage.getItem('ai_schedule_local_schedules');
       if (saved) {
         const arr = JSON.parse(saved);
-        if (Array.isArray(arr) && arr.length > 0) return arr;
+        // 去演示化：清理历史内置 mock；真实数据（后端 id 或用户创建）保留
+        if (Array.isArray(arr) && arr.length > 0) {
+          const isAllMock = arr.every((it) => MOCK_SCHEDULE_IDS.has(String(it?.id)));
+          if (!isAllMock) return arr;
+          localStorage.removeItem('ai_schedule_local_schedules');
+        }
       }
     } catch { /* ignore */ }
-    return INITIAL_SCHEDULES;
+    return [];
   });
   const [currentDraft, setCurrentDraft] = useState<Partial<ScheduleItem> | null>(null);
   const [confirmedItem, setConfirmedItem] = useState<ScheduleItem | null>(null);
@@ -251,7 +181,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (ok) {
         try {
           const list = await apiListSchedules();
-          if (!cancelled && list?.items && list.items.length > 0) {
+          // 后端为权威数据源：items 存在即覆盖（含空数组，不保留演示数据）
+          if (!cancelled && list?.items) {
             setSchedules(list.items);
           }
         } catch (err) {
@@ -277,7 +208,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (ok) {
       try {
         const list = await apiListSchedules();
-        if (list?.items && list.items.length > 0) setSchedules(list.items);
+        if (list?.items) setSchedules(list.items);
       } catch (err) {
         console.warn('[backend] 拉取日程列表失败', err);
       }
