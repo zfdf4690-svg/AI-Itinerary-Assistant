@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ChevronLeft, Play, Pause, Check } from 'lucide-react';
+import { Play } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { PERSONAS } from '../../constants/personas';
 import { PersonaId } from '../../types';
@@ -7,174 +7,106 @@ import { playAudioFeedback, speakText, stopSpeaking, isSpeaking } from '../../ut
 import { BottomTabBar } from '../common/BottomTabBar';
 
 export const PersonaDetailView: React.FC = () => {
-  const { setCurrentView, activePersonaId, setActivePersonaId } = useApp();
-  const [previewId, setPreviewId] = useState<PersonaId>(activePersonaId);
-  const [isPlaying, setIsPlaying] = useState(false);
+  const { activePersonaId, setActivePersonaId } = useApp();
+  const [playingId, setPlayingId] = useState<PersonaId | null>(null);
 
-  const currentPersona = PERSONAS[previewId];
-  const isCurrentActive = activePersonaId === previewId;
+  const personaList = (Object.keys(PERSONAS) as PersonaId[]).map((id) => PERSONAS[id]);
 
-  const handleAudition = () => {
-    if (isPlaying) {
+  const handleAudition = (id: PersonaId, text: string, pitch: number, rate: number) => {
+    playAudioFeedback('tap');
+    if (playingId === id && isSpeaking()) {
       stopSpeaking();
-      setIsPlaying(false);
+      setPlayingId(null);
       return;
     }
 
-    playAudioFeedback('tap');
-    setIsPlaying(true);
-    speakText(currentPersona.sampleAudioText, {
-      pitch: currentPersona.speechPitch,
-      rate: currentPersona.speechRate,
-      personaId: previewId,
-      onEnd: () => setIsPlaying(false)
+    setPlayingId(id);
+    speakText(text, {
+      pitch,
+      rate,
+      personaId: id,
+      onEnd: () => setPlayingId(null)
     });
   };
 
-  const handleSelectPersona = (id: PersonaId) => {
+  const handleSelect = (id: PersonaId) => {
     playAudioFeedback('tap');
-    setPreviewId(id);
     setActivePersonaId(id);
-    stopSpeaking();
-    setIsPlaying(false);
   };
 
   return (
-    <div className="relative flex flex-col h-full bg-[#FAF7F9] text-slate-800 select-none overflow-y-auto">
-      {/* Top Floating Back Button */}
-      <div className="absolute top-3 left-4 z-30">
-        <button
-          onClick={() => {
-            stopSpeaking();
-            playAudioFeedback('tap');
-            setCurrentView('settings');
-          }}
-          title="返回"
-          className="w-10 h-10 rounded-full bg-white/70 backdrop-blur-md border border-white/60 shadow-xs flex items-center justify-center text-slate-700 hover:text-slate-900 active:scale-95 transition-all"
-        >
-          <ChevronLeft className="w-6 h-6" />
-        </button>
+    <div className="relative flex flex-col h-full bg-[#F5F5F7] text-[#1D1D1F] select-none font-sans overflow-hidden">
+      {/* Top Header */}
+      <div className="px-6 pt-4 pb-2">
+        <h1 className="text-[20px] font-bold text-[#1D1D1F] tracking-tight">
+          人格与声音
+        </h1>
+        <p className="text-[13px] text-[#86868B] mt-0.5">
+          个性化表达与播报音色，不影响日程核心逻辑
+        </p>
       </div>
 
-      {/* Hero Big Portrait Image */}
-      <div className="relative w-full h-[320px] bg-gradient-to-b from-pink-100/60 via-purple-50/50 to-[#FAF7F9] flex items-center justify-center overflow-hidden">
-        <img
-          src={currentPersona.avatar}
-          alt={currentPersona.name}
-          referrerPolicy="no-referrer"
-          className="w-full h-full object-cover object-top transition-all duration-300 transform scale-105"
-        />
-        {/* Soft gradient scrim towards bottom */}
-        <div className="absolute inset-0 bg-gradient-to-t from-[#FAF7F9] via-transparent to-black/10" />
-      </div>
+      {/* Main Lightweight Card List (Page 08 Persona spec) */}
+      <div className="flex-1 overflow-y-auto px-6 py-2 space-y-3">
+        {personaList.map((p) => {
+          const isSelected = activePersonaId === p.id;
+          const isAudioPlaying = playingId === p.id;
 
-      {/* Main Persona Information Card (Overlapping portrait) */}
-      <div className="relative -mt-10 px-5 pb-6 flex-1 flex flex-col justify-between">
-        <div className="bg-white rounded-3xl p-5 border border-slate-100 shadow-sm space-y-4">
-          {/* Header Title + Current Badge */}
-          <div className="flex items-center justify-between">
-            <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-              {currentPersona.name}
-            </h1>
-            {isCurrentActive ? (
-              <span className="px-2.5 py-1 rounded-full bg-blue-50 text-blue-600 text-[11px] font-semibold">
-                当前使用
-              </span>
-            ) : (
-              <button
-                onClick={() => handleSelectPersona(previewId)}
-                className="px-3 py-1 rounded-full bg-blue-600 text-white text-[11px] font-semibold hover:bg-blue-700 active:scale-95 transition-all"
-              >
-                设为当前人设
-              </button>
-            )}
-          </div>
-
-          {/* Slogan */}
-          <p className="text-xs text-slate-500 font-normal">
-            {currentPersona.description}
-          </p>
-
-          {/* Persona Traits Tags */}
-          <div className="flex items-center gap-2 pt-1 flex-wrap">
-            {currentPersona.traits.map((trait, idx) => (
-              <span
-                key={idx}
-                className="px-2.5 py-1 rounded-full bg-pink-50 border border-pink-100/80 text-[11px] font-medium text-pink-700 flex items-center gap-1"
-              >
-                <span>✨</span>
-                <span>{trait}</span>
-              </span>
-            ))}
-          </div>
-
-          {/* Play Sample Voice Button */}
-          <div className="pt-2">
-            <button
-              onClick={handleAudition}
-              className="w-full h-11 rounded-full bg-[#FFF1F2] hover:bg-[#FFE4E6] active:scale-98 text-pink-700 text-xs font-semibold border border-pink-200/60 transition-all flex items-center justify-center gap-2 shadow-2xs"
+          return (
+            <div
+              key={p.id}
+              onClick={() => handleSelect(p.id)}
+              className={`w-full bg-[#FFFFFF] rounded-[16px] p-5 border transition-all cursor-pointer shadow-apple space-y-3 ${
+                isSelected ? 'border-[#007AFF] ring-1 ring-[#007AFF]/20' : 'border-[#E5E5EA] hover:border-[#D2D2D7]'
+              }`}
             >
-              {isPlaying ? (
-                <>
-                  <Pause className="w-4 h-4 fill-pink-600 text-pink-600" />
-                  <span>暂停试听</span>
-                </>
-              ) : (
-                <>
-                  <Play className="w-4 h-4 fill-pink-600 text-pink-600" />
-                  <span>试听语音 ({currentPersona.voiceStyle.split('·')[0]})</span>
-                </>
-              )}
-            </button>
-          </div>
-        </div>
+              <div className="flex items-start justify-between">
+                <div>
+                  <h2 className="text-[17px] font-semibold text-[#1D1D1F]">
+                    {p.name}
+                  </h2>
+                  <p className="text-[13px] text-[#86868B] mt-0.5">
+                    {p.tagline}
+                  </p>
+                </div>
 
-        {/* Bottom 3-Card Persona Selector */}
-        <div className="mt-5 space-y-2">
-          <p className="text-[11px] font-medium text-slate-400 px-1">选择陪伴人设：</p>
-          <div className="grid grid-cols-3 gap-2.5">
-            {(Object.keys(PERSONAS) as PersonaId[]).map((id) => {
-              const p = PERSONAS[id];
-              const isSelected = previewId === id;
-
-              return (
+                {/* Audio Sample Audition Button */}
                 <button
-                  key={id}
-                  onClick={() => {
-                    setPreviewId(id);
-                    setActivePersonaId(id);
-                    playAudioFeedback('tap');
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleAudition(p.id, p.sampleAudioText, p.speechPitch, p.speechRate);
                   }}
-                  className={`relative rounded-2xl p-2 bg-white flex flex-col items-center text-center border transition-all active:scale-95 shadow-2xs ${
-                    isSelected
-                      ? 'border-blue-500 ring-2 ring-blue-100'
-                      : 'border-slate-100 hover:border-slate-200'
+                  className={`h-8 px-3 rounded-[8px] text-[13px] font-medium flex items-center gap-1.5 transition-all cursor-pointer ${
+                    isAudioPlaying
+                      ? 'bg-[#007AFF] text-white'
+                      : 'bg-[#F2F2F7] hover:bg-[#E5E5EA] text-[#1D1D1F]'
                   }`}
                 >
-                  {/* Thumbnail Avatar */}
-                  <div className="w-14 h-14 rounded-xl overflow-hidden mb-1.5 shadow-2xs relative">
-                    <img
-                      src={p.avatar}
-                      alt={p.name}
-                      referrerPolicy="no-referrer"
-                      className="w-full h-full object-cover"
-                    />
-                    {activePersonaId === id && (
-                      <span className="absolute bottom-1 right-1 w-2.5 h-2.5 rounded-full bg-blue-500 border-2 border-white" />
-                    )}
-                  </div>
-
-                  <span className={`text-xs font-bold truncate w-full ${isSelected ? 'text-blue-600' : 'text-slate-700'}`}>
-                    {p.name}
-                  </span>
+                  <Play className="w-3 h-3 fill-current" />
+                  <span>{isAudioPlaying ? '播放中' : '播放示例'}</span>
                 </button>
-              );
-            })}
-          </div>
-        </div>
+              </div>
+
+              {/* Status Radio */}
+              <div className="flex items-center gap-2 pt-1 border-t border-[#F2F2F7]">
+                <span
+                  className={`w-4 h-4 rounded-full border flex items-center justify-center ${
+                    isSelected ? 'border-[#007AFF]' : 'border-[#D2D2D7]'
+                  }`}
+                >
+                  {isSelected && <span className="w-2 h-2 rounded-full bg-[#007AFF]" />}
+                </span>
+                <span className={`text-[13px] ${isSelected ? 'text-[#007AFF] font-medium' : 'text-[#86868B]'}`}>
+                  {isSelected ? '当前使用' : '点击选择'}
+                </span>
+              </div>
+            </div>
+          );
+        })}
       </div>
 
-      {/* Global Bottom Navigation Bar */}
+      {/* Global Bottom Navigation */}
       <BottomTabBar />
     </div>
   );

@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Volume2, VolumeX } from 'lucide-react';
+import React from 'react';
+import { Volume2 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { speakText, stopSpeaking, isSpeaking, playAudioFeedback } from '../../utils/audio';
 
@@ -9,14 +9,13 @@ interface SpeakerButtonProps {
 }
 
 export const SpeakerButton: React.FC<SpeakerButtonProps> = ({ textToSpeak, className = '' }) => {
-  const { autoVoiceEnabled, setAutoVoiceEnabled, activePersona } = useApp();
-  const [playing, setPlaying] = useState(false);
+  const { activePersona } = useApp();
+  const [playing, setPlaying] = React.useState(false);
 
-  useEffect(() => {
-    const checkPlaying = () => {
+  React.useEffect(() => {
+    const timer = setInterval(() => {
       setPlaying(isSpeaking());
-    };
-    const timer = setInterval(checkPlaying, 250);
+    }, 250);
     return () => clearInterval(timer);
   }, []);
 
@@ -38,17 +37,6 @@ export const SpeakerButton: React.FC<SpeakerButtonProps> = ({ textToSpeak, class
         onStart: () => setPlaying(true),
         onEnd: () => setPlaying(false)
       });
-    } else {
-      // Toggle auto voice broadcast mode
-      const nextState = !autoVoiceEnabled;
-      setAutoVoiceEnabled(nextState);
-      if (nextState) {
-        speakText('语音播报已开启', {
-          pitch: activePersona.speechPitch,
-          rate: activePersona.speechRate,
-          personaId: activePersona.id
-        });
-      }
     }
   };
 
@@ -56,19 +44,12 @@ export const SpeakerButton: React.FC<SpeakerButtonProps> = ({ textToSpeak, class
     <button
       onClick={handleClick}
       type="button"
-      title={autoVoiceEnabled ? '语音播报开启中（点击静音或试听）' : '语音播报已静音（点击播放）'}
-      className={`min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full text-slate-700 hover:text-slate-900 hover:bg-slate-100/70 active:scale-95 transition-all ${className}`}
+      title={playing ? '正在播放中，点击停止' : '播放语音'}
+      className={`w-7 h-7 rounded-full flex items-center justify-center text-[#86868B] hover:text-[#1D1D1F] hover:bg-[#F2F2F7] active:scale-95 transition-all cursor-pointer ${
+        playing ? 'text-[#007AFF] bg-[#007AFF]/10' : ''
+      } ${className}`}
     >
-      {playing ? (
-        <span className="relative flex items-center justify-center text-blue-600">
-          <Volume2 className="w-5 h-5 animate-pulse" />
-          <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-blue-500 animate-ping" />
-        </span>
-      ) : autoVoiceEnabled ? (
-        <Volume2 className="w-5 h-5" />
-      ) : (
-        <VolumeX className="w-5 h-5 text-slate-400" />
-      )}
+      <Volume2 className="w-3.5 h-3.5" />
     </button>
   );
 };

@@ -46,13 +46,13 @@ export interface DailyReminderConfig {
 export interface ScheduleItem {
   id: string;
   time: string; // e.g. "15:00"
-  dateLabel: string; // e.g. "明天 (周二)" or "4月23日 周二"
+  dateLabel: string; // e.g. "明天 (周二)" or "9月29日"
   title: string; // e.g. "与张总开会"
-  location: string; // e.g. "上海虹桥"
+  location?: string; // e.g. "陆家嘴"
   task: string; // e.g. "与张总开会"
-  matters: string; // e.g. "讨论二期项目"
-  remindOffset: string; // e.g. "提前30分钟"
-  accentColor: 'blue' | 'red' | 'orange' | 'emerald';
+  matters?: string; // e.g. "二期项目"
+  remindOffset?: string; // e.g. "提前 30 分钟"
+  accentColor?: 'blue' | 'red' | 'orange' | 'emerald';
   priority?: SchedulePriority;
   hasAlarm?: boolean;
   status: 'active' | 'completed' | 'cancelled';
@@ -68,12 +68,26 @@ export interface ChatMessage {
   actionRequired?: boolean;
 }
 
+/**
+ * 对应设计系统规范定义的 P0 页面与状态机
+ * 01: Home (日常入口)
+ * 02: Listening (语音输入)
+ * 03: AI Clarification (AI 补充信息)
+ * 04: Schedule Card (AI 生成日程)
+ * 05: Schedule Edit (用户手动修改轻量结构化表单)
+ * 06: Created (创建完成)
+ * 07: Calendar (查看日历安排)
+ * 08: Persona (人格/声音设置)
+ * 09: Settings (系统设置)
+ */
 export type ViewType = 
-  | 'home'             // 01-首页-语音唤醒
-  | 'listening'        // 02-语音输入中
-  | 'confirmation'     // 03-日程卡片展示 / 04-二次修改
-  | 'success'          // 08-创建成功-提醒设置
-  | 'calendar'         // 05-日程列表-今日行程
-  | 'settings'         // 06-AI人格设置
-  | 'persona_detail'   // 07-人格选择详情
+  | 'home'             // 01 Home
+  | 'listening'        // 02 Listening
+  | 'clarification'    // 03 AI Clarification
+  | 'confirmation'     // 04 Schedule Card
+  | 'schedule_edit'    // 05 Schedule Edit
+  | 'success'          // 06 Created
+  | 'calendar'         // 07 Calendar
+  | 'persona_detail'   // 08 Persona
+  | 'settings'         // 09 Settings
 ;
