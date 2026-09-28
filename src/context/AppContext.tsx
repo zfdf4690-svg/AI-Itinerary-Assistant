@@ -422,7 +422,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             : { status: 'active', hasAlarm: true };
         const replyText = lastAiText(conv, '好的，我帮你记下来了。\n这样安排可以吗？');
         setCurrentDraft(draft);
-        setChatMessages([
+        setChatMessages((prev) => [
+          ...prev,
           {
             id: `msg-${Date.now()}-ai`,
             sender: 'ai',
@@ -432,7 +433,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             actionRequired: conv.action,
           },
         ]);
-        setCurrentView(needsClarify(conv.action) ? 'clarification' : 'confirmation');
+        // 对话式模式：由首页聊天流承接，视图保持 home（不跳转独立确认页）
+        setCurrentView('home');
+        setIsLlmProcessing(false);
         playAudioFeedback('bubble');
         if (autoVoiceEnabled) {
           setTimeout(() => speakSmart(replyText.replace(/\n/g, ' ')), 300);
@@ -472,8 +475,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     ];
 
-    setChatMessages(initialMessages);
-    setCurrentView('confirmation');
+    setChatMessages((prev) => [...prev, ...initialMessages]);
+    setCurrentView('home');
     playAudioFeedback('bubble');
 
     // 2. If DeepSeek is enabled and configured, run DeepSeek extraction asynchronously
@@ -488,7 +491,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             ...result.slots
           };
           setCurrentDraft(mergedDraft);
-          setChatMessages([
+          setChatMessages((prev) => [
+            ...prev,
             {
               id: `msg-${Date.now()}-ai`,
               sender: 'ai',
@@ -568,7 +572,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             actionRequired: action,
           },
         ]);
-        setCurrentView(needsClarify(action) ? 'clarification' : 'confirmation');
+        // 对话式模式：由首页聊天流承接，视图保持 home（不跳转独立确认页）
+        setCurrentView('home');
+        setIsLlmProcessing(false);
         playAudioFeedback('bubble');
         if (autoVoiceEnabled) {
           setTimeout(() => speakSmart(replyText.replace(/\n/g, ' ')), 300);
@@ -674,13 +680,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           console.warn('[backend] 刷新日程列表失败', err);
         }
         setConfirmedItem(schedule);
+        setCurrentDraft(null);
         playAudioFeedback('success');
-        setCurrentView('success');
+        setChatMessages((prev) => [
+          ...prev,
+          {
+            id: `msg-${Date.now()}-created`,
+            sender: 'ai',
+            text: `已为你创建日程：${schedule.title}，我会在事前提醒你。`,
+            timestamp: Date.now(),
+          },
+        ]);
         if (autoVoiceEnabled) {
           setTimeout(() => {
             speakSmart(`已为您创建日程：${schedule.title}，我会在事前提醒你。`);
           }, 400);
         }
+        setIsLlmProcessing(false);
         return schedule;
       } catch (err) {
         console.warn('[backend] 创建日程失败，降级本地', err);
@@ -705,8 +721,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     setSchedules((prev) => [newItem, ...prev]);
     setConfirmedItem(newItem);
+    setCurrentDraft(null);
     playAudioFeedback('success');
-    setCurrentView('success');
+    setChatMessages((prev) => [
+      ...prev,
+      {
+        id: `msg-${Date.now()}-created`,
+        sender: 'ai',
+        text: `已为你创建日程：${newItem.title}，我会在事前提醒你。`,
+        timestamp: Date.now(),
+      },
+    ]);
 
     if (autoVoiceEnabled) {
       setTimeout(() => {
