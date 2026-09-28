@@ -3,7 +3,14 @@ import { Calendar as CalendarIcon, Mic, Sparkles, Send } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { playAudioFeedback } from '../../utils/audio';
 import { BottomTabBar } from '../common/BottomTabBar';
+import { RealAudioCapturer } from '../../utils/voiceRecorder';
 import type { ScheduleItem } from '../../types';
+
+/**
+ * PHASE 4-D · D1 Browser STT 状态机：
+ * idle → listening（点击麦克风）→ transcribing（实时识别文本进输入框）→ text_ready（识别结束，用户手动发送）
+ * error（权限拒绝 / 不支持 / 异常）。识别结果只写入输入框，绝不自动提交 / 自动创建日程。
+ */
 
 /**
  * 01 Home · 对话式聊天首页（PHASE 4-C）
@@ -26,6 +33,60 @@ export const HomeView: React.FC = () => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // ---- PHASE 4-D · D1 Browser STT 就地语音输入（识别只入输入框，由用户手动发送）----
+  type VoiceState = 'idle' | 'listening' | 'transcribing' | 'text_ready' | 'error';
+  const [voiceState, setVoiceState] = useState<VoiceState>('idle');
+  const [voiceError, setVoiceError] = useState('');
+  const capturerRef = useRef<RealAudioCapturer | null>(null);
+  const speechSupported =
+    typeof window !== 'undefined' &&
+    Boolean((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition);
+
+  const stopVoiceCapture = () => {
+    if (capturerRef.current) capturerRef.current.stop();
+    capturerRef.current = null;
+  };
+
+  const handleStartVoice = () => {
+    // 正在识别中再次点击 → 手动停止：文本保留在输入框，由用户决定是否发送
+    if (voiceState === 'listening' || voiceState === 'transcribing') {
+      stopVoiceCapture();
+      setVoiceState(inputText.trim() ? 'text_ready' : 'idle');
+      playAudioFeedback('tap');
+      return;
+    }
+    if (!speechSupported) {
+      setVoiceError('当前浏览器暂不支持语音输入，请使用文字输入。');
+      setVoiceState('error');
+      playAudioFeedback('tap');
+      return;
+    }
+    playAudioFeedback('wake');
+    setVoiceError('');
+    setVoiceState('listening');
+    const capturer = new RealAudioCapturer();
+    capturerRef.current = capturer;
+    capturer.onTranscriptChange = (text, isFinal) => {
+      // 实时/最终识别结果写入输入框（可编辑）；识别结束自动停止，等待用户手动发送
+      setInputText(text);
+      setVoiceState('transcribing');
+      if (isFinal) {
+        stopVoiceCapture();
+        setVoiceState('text_ready');
+      }
+    };
+    capturer.onError = (msg) => {
+      setVoiceError(msg || '语音输入异常，请改用文字输入。');
+      setVoiceState('error');
+    };
+    void capturer.start();
+  };
+
+  // 卸载时停止录音
+  useEffect(() => {
+    return () => stopVoiceCapture();
+  }, []);
+
   useEffect(() => {
     scrollRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatMessages, isLlmProcessing]);
@@ -45,11 +106,6 @@ export const HomeView: React.FC = () => {
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') handleSend(inputText);
-  };
-
-  const handleStartVoice = () => {
-    playAudioFeedback('wake');
-    setCurrentView('listening');
   };
 
   /** 编辑：聚焦输入框，直接文字修改（对话式编辑，保持上下文） */
@@ -141,21 +197,37 @@ export const HomeView: React.FC = () => {
   /** 底部输入条（聊天模式） */
   const inputBar = (
     <div className="px-5 py-3 border-t border-[#D2D2D7]/40 bg-[#FFFFFF]">
+      {voiceError && (
+        <div className="text-[12px] text-[#FF3B30] px-1 pb-1.5">{voiceError}</div>
+      )}
       <div className="flex items-center gap-2 bg-[#F5F5F7] rounded-[14px] border border-[#D2D2D7] pl-4 pr-1.5 py-1.5 focus-within:border-[#007AFF]/60 focus-within:ring-2 focus-within:ring-[#007AFF]/15 transition-all">
         <input
           ref={inputRef}
           type="text"
           value={inputText}
-          onChange={(e) => setInputText(e.target.value)}
+          onChange={(e) => {
+            setInputText(e.target.value);
+            if (voiceError) setVoiceError('');
+          }}
           onKeyDown={handleKeyDown}
-          placeholder={currentDraft ? '说出修改，如：地点改到虹桥…' : '说说你接下来要做什么'}
+          placeholder={
+            voiceState === 'listening' || voiceState === 'transcribing'
+              ? '正在听，请说话…'
+              : currentDraft
+                ? '说出修改，如：地点改到虹桥…'
+                : '说说你接下来要做什么'
+          }
           className="flex-1 min-w-0 bg-transparent text-[15px] text-[#1D1D1F] placeholder:text-[#AEAEB2] focus:outline-none py-1"
         />
         <button
           type="button"
           onClick={handleStartVoice}
-          title="语音输入"
-          className="shrink-0 w-9 h-9 rounded-full bg-[#007AFF] hover:bg-[#007AFF]/90 active:scale-95 flex items-center justify-center text-[#FFFFFF] transition-all cursor-pointer"
+          title={voiceState === 'listening' || voiceState === 'transcribing' ? '停止语音输入' : '语音输入'}
+          className={`shrink-0 w-9 h-9 rounded-full flex items-center justify-center text-[#FFFFFF] transition-all cursor-pointer ${
+            voiceState === 'listening' || voiceState === 'transcribing'
+              ? 'bg-[#FF3B30] animate-pulse'
+              : 'bg-[#007AFF] hover:bg-[#007AFF]/90 active:scale-95'
+          }`}
         >
           <Mic className="w-[18px] h-[18px] stroke-[2]" />
         </button>
@@ -251,21 +323,35 @@ export const HomeView: React.FC = () => {
               </p>
             </div>
 
+            {voiceError && (
+              <div className="w-full text-[12px] text-[#FF3B30] -mt-2">{voiceError}</div>
+            )}
             <div className="w-full flex items-center gap-2 bg-[#FFFFFF] rounded-[16px] border border-[#D2D2D7] pl-4 pr-1.5 py-2 shadow-apple focus-within:border-[#007AFF]/60 focus-within:ring-2 focus-within:ring-[#007AFF]/15 transition-all">
               <input
                 ref={inputRef}
                 type="text"
                 value={inputText}
-                onChange={(e) => setInputText(e.target.value)}
+                onChange={(e) => {
+                  setInputText(e.target.value);
+                  if (voiceError) setVoiceError('');
+                }}
                 onKeyDown={handleKeyDown}
-                placeholder="例如：明天下午三点和张总开会"
+                placeholder={
+                  voiceState === 'listening' || voiceState === 'transcribing'
+                    ? '正在听，请说话…'
+                    : '例如：明天下午三点和张总开会'
+                }
                 className="flex-1 min-w-0 bg-transparent text-[16px] text-[#1D1D1F] placeholder:text-[#AEAEB2] focus:outline-none py-1"
               />
               <button
                 type="button"
                 onClick={handleStartVoice}
-                title="语音输入"
-                className="shrink-0 w-10 h-10 rounded-full bg-[#007AFF] hover:bg-[#007AFF]/90 active:scale-95 flex items-center justify-center text-[#FFFFFF] transition-all cursor-pointer"
+                title={voiceState === 'listening' || voiceState === 'transcribing' ? '停止语音输入' : '语音输入'}
+                className={`shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-[#FFFFFF] transition-all cursor-pointer ${
+                  voiceState === 'listening' || voiceState === 'transcribing'
+                    ? 'bg-[#FF3B30] animate-pulse'
+                    : 'bg-[#007AFF] hover:bg-[#007AFF]/90 active:scale-95'
+                }`}
               >
                 <Mic className="w-[20px] h-[20px] stroke-[2]" />
               </button>
