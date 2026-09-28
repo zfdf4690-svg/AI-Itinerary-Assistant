@@ -78,6 +78,8 @@ interface AppContextType {
   resetChatWithUtterance: (utterance: string) => void;
   applyModification: (correctionText: string) => void;
   confirmDraftSchedule: () => Promise<ScheduleItem | null>;
+  /** PHASE 4-D · D2：新建 Conversation Context（仅重置会话，保留 schedules/memory/数据库） */
+  startNewConversation: () => void;
   confirmedItem: ScheduleItem | null;
   isEveningReviewOpen: boolean;
   setIsEveningReviewOpen: (open: boolean) => void;
@@ -527,9 +529,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  /**
+   * PHASE 4-D · D2：新建 Conversation Context。
+   * 只重置会话：convId（下一次输入将创建全新会话）、currentDraft、chatMessages、confirmedItem。
+   * 不删除 schedules / memory / 旧 conversation / 数据库数据。
+   */
+  const startNewConversation = () => {
+    convIdRef.current = null;
+    setCurrentDraft(null);
+    setChatMessages([]);
+    setConfirmedItem(null);
+    setCurrentView('home');
+    playAudioFeedback('tap');
+  };
+
   // 多轮修正 → 后端会话流/单轮理解（任务书 Phase 4）；离线时本地 NLU + DeepSeek 双模
-  const applyModification = async (correctionText: string) => {
-    if (!currentDraft) return;
+  const applyModification = async (correctionText: string) => {    if (!currentDraft) return;
 
     const userMsg: ChatMessage = {
       id: `msg-${Date.now()}-user`,
@@ -858,6 +873,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         resetChatWithUtterance,
         applyModification,
         confirmDraftSchedule,
+        startNewConversation,
         confirmedItem,
         isEveningReviewOpen,
         setIsEveningReviewOpen,

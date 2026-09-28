@@ -25,6 +25,7 @@ export const HomeView: React.FC = () => {
     resetChatWithUtterance,
     applyModification,
     confirmDraftSchedule,
+    startNewConversation,
     schedules,
     backendStatus,
     isLlmProcessing,
@@ -93,6 +94,18 @@ export const HomeView: React.FC = () => {
 
   const inConversation = chatMessages.length > 0;
   const todayCount = schedules.filter((s) => s.status !== 'completed').length;
+
+  // ---- PHASE 4-D · D2 New Conversation：右上角入口 + 未确认草稿提示 ----
+  const [showNewConfirm, setShowNewConfirm] = useState(false);
+  const hasUnconfirmedDraft = Boolean(currentDraft && Object.keys(currentDraft).length > 0);
+  const handleNewConversation = () => {
+    if (hasUnconfirmedDraft) {
+      setShowNewConfirm(true);
+      playAudioFeedback('tap');
+    } else {
+      startNewConversation();
+    }
+  };
 
   const handleSend = (text: string) => {
     const val = text.trim();
@@ -251,17 +264,61 @@ export const HomeView: React.FC = () => {
         <h1 className="text-[20px] font-bold text-[#1D1D1F] tracking-tight">
           AI 语音行程助手
         </h1>
-        <button
-          onClick={() => {
-            playAudioFeedback('tap');
-            setCurrentView('calendar');
-          }}
-          title="日历视图"
-          className="w-8 h-8 rounded-full flex items-center justify-center text-[#1D1D1F] hover:bg-[#F2F2F7] active:scale-95 transition-all cursor-pointer"
-        >
-          <CalendarIcon className="w-4 h-4 stroke-[2]" />
-        </button>
+        <div className="flex items-center gap-2">
+          {/* PHASE 4-D · D2：新建对话（仅重置会话上下文，不删除任何日程/记忆） */}
+          <button
+            type="button"
+            onClick={handleNewConversation}
+            title="新建对话"
+            className="h-8 px-3 rounded-full flex items-center gap-1 text-[13px] font-semibold text-[#007AFF] bg-[#007AFF]/10 hover:bg-[#007AFF]/15 active:scale-95 transition-all cursor-pointer"
+          >
+            ＋ New
+          </button>
+          <button
+            onClick={() => {
+              playAudioFeedback('tap');
+              setCurrentView('calendar');
+            }}
+            title="日历视图"
+            className="w-8 h-8 rounded-full flex items-center justify-center text-[#1D1D1F] hover:bg-[#F2F2F7] active:scale-95 transition-all cursor-pointer"
+          >
+            <CalendarIcon className="w-4 h-4 stroke-[2]" />
+          </button>
+        </div>
       </div>
+
+      {/* PHASE 4-D · D2：存在未确认草稿时的 New 确认条 */}
+      {showNewConfirm && (
+        <div className="absolute top-[52px] left-0 right-0 z-20 px-5">
+          <div className="bg-[#FFFFFF]/95 backdrop-blur rounded-[16px] border border-[#D2D2D7] shadow-apple p-4 space-y-3 animate-fadeIn">
+            <div className="text-[14px] font-medium text-[#1D1D1F] leading-snug">
+              当前还有一个未确认的日程，要开始新的对话吗？
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowNewConfirm(false);
+                  playAudioFeedback('tap');
+                }}
+                className="h-[40px] rounded-[12px] bg-[#F2F2F7] hover:bg-[#E5E5EA] active:scale-95 text-[#1D1D1F] text-[14px] font-medium transition-all cursor-pointer"
+              >
+                继续当前对话
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowNewConfirm(false);
+                  startNewConversation();
+                }}
+                className="h-[40px] rounded-[12px] bg-[#007AFF] hover:bg-[#007AFF]/90 active:scale-95 text-[#FFFFFF] text-[14px] font-semibold transition-all cursor-pointer"
+              >
+                新建对话
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {inConversation ? (
         /* ===== 聊天流模式 ===== */
