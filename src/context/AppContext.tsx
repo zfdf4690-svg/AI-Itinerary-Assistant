@@ -94,6 +94,10 @@ interface AppContextType {
   activeNotification: BackgroundNotificationToast | null;
   dismissNotification: () => void;
   triggerManualReminderTest: (priority?: SchedulePriority) => void;
+  /** PHASE 4-G：提醒弹窗"查看详情"→ 定位到日历对应日程详情卡片 */
+  reminderFocusId: string | null;
+  openScheduleFromReminder: (id: string) => void;
+  consumeReminderFocus: () => string | null;
 }
 
 const DEFAULT_REMINDER_CONFIG: DailyReminderConfig = {
@@ -171,6 +175,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isLlmProcessing, setIsLlmProcessing] = useState<boolean>(false);
   const [lastLlmSource, setLastLlmSource] = useState<'deepseek' | 'local_fallback' | null>(null);
   const [activeNotification, setActiveNotification] = useState<BackgroundNotificationToast | null>(null);
+  /** PHASE 4-G：提醒弹窗"查看详情"要聚焦的日程 id（CalendarView 消费后清空） */
+  const [reminderFocusId, setReminderFocusId] = useState<string | null>(null);
   const triggeredTaskIds = useRef<Set<string>>(new Set());
   /** 已弹过后端日程提醒的 id（去重：弹过即 dismiss，避免重复弹） */
   const polledReminderIds = useRef<Set<string>>(new Set());
@@ -325,6 +331,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setActiveNotification(null);
   };
 
+  /** PHASE 4-G：提醒弹窗"查看详情"→ 记录目标日程 id，交由 CalendarView 消费定位 */
+  const openScheduleFromReminder = (id: string) => {
+    setReminderFocusId(id);
+  };
+
+  /** PHASE 4-G：CalendarView 消费焦点 id（取后立即清空，避免重复弹详情） */
+  const consumeReminderFocus = (): string | null => {
+    const id = reminderFocusId;
+    setReminderFocusId(null);
+    return id;
+  };
+
   // Background Task Engine: simulates server/client background alarm daemon
   useEffect(() => {
     if (!dailyReminderConfig.dailyAlarmEnabled) return;
@@ -417,6 +435,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             timeStr,
             priority: prio,
             personaName: activePersona.name,
+            scheduleId: r.scheduleId,
           });
           if (autoVoiceEnabled) {
             speakSmart(r.message, { pitch: activePersona.speechPitch, rate: activePersona.speechRate });
@@ -974,7 +993,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setPreviewDevice,
         activeNotification,
         dismissNotification,
-        triggerManualReminderTest
+        triggerManualReminderTest,
+        reminderFocusId,
+        openScheduleFromReminder,
+        consumeReminderFocus
       }}
     >
       {children}

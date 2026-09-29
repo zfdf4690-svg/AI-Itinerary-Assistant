@@ -10,6 +10,8 @@ export interface BackgroundNotificationToast {
   timeStr: string;
   priority?: SchedulePriority;
   personaName: string;
+  /** 关联日程 id（schedule_alarm）：点击"查看详情"跳转日历并打开该日程详情卡片 */
+  scheduleId?: string;
 }
 
 interface NotificationToastProps {

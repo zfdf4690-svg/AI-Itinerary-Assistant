@@ -200,8 +200,8 @@ export async function apiDeleteSchedule(id: string): Promise<{ ok: boolean; id: 
   return request(`/schedules/${id}`, { method: 'DELETE' });
 }
 
-/** 活跃提醒：GET /reminders/active */
-export async function apiGetActiveReminders(): Promise<{ items: { id: string; type: string; title: string; message: string; dueAt: number; priority?: string }[]; total: number }> {
+/** 活跃提醒：GET /reminders/active（scheduleId 供"查看详情"定位日历日程） */
+export async function apiGetActiveReminders(): Promise<{ items: { id: string; type: string; title: string; message: string; dueAt: number; priority?: string; scheduleId?: string }[]; total: number }> {
   return request('/reminders/active');
 }
 

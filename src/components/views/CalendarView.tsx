@@ -1,13 +1,13 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ChevronLeft, ChevronRight, MoreHorizontal } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { playAudioFeedback } from '../../utils/audio';
-import { ScheduleItem } from '../../types';
+import { ScheduleItem, SchedulePriority } from '../../types';
 import { BottomTabBar } from '../common/BottomTabBar';
 import { WheelPicker } from '../common/WheelPicker';
 
 export const CalendarView: React.FC = () => {
-  const { schedules, updateSchedule, deleteSchedule } = useApp();
+  const { schedules, updateSchedule, deleteSchedule, reminderFocusId, consumeReminderFocus } = useApp();
 
   const [currentYear, setCurrentYear] = useState<number>(2026);
   const [currentMonth, setCurrentMonth] = useState<number>(8); // 8 is September
@@ -26,6 +26,56 @@ export const CalendarView: React.FC = () => {
   const [editRemindMin, setEditRemindMin] = useState('0');
   /** 删除二次确认的日程 id */
   const [confirmDeleteFor, setConfirmDeleteFor] = useState<string | null>(null);
+  /** PHASE 4-G：详情卡片浮层（提醒弹窗"查看详情"进入） */
+  const [detailFor, setDetailFor] = useState<ScheduleItem | null>(null);
+
+  /**
+   * PHASE 4-G：日程卡片左侧优先级色条（高=红 / 中=橙 / 低=绿 / 默认=蓝 / 已完成=灰）。
+   * 仅视觉标识，不改变业务逻辑。
+   */
+  const getPriorityBorderClass = (p?: SchedulePriority, completed?: boolean): string => {
+    if (completed) return 'border-l-[#C7C7CC]';
+    switch (p) {
+      case 'high': return 'border-l-[#FF3B30]';
+      case 'medium': return 'border-l-[#FF9F0A]';
+      case 'low': return 'border-l-[#34C759]';
+      default: return 'border-l-[#007AFF]';
+    }
+  };
+
+  /** 详情浮层中的优先级徽章 */
+  const getPriorityBadge = (p?: SchedulePriority) => {
+    switch (p) {
+      case 'high':
+        return <span className="shrink-0 text-[11px] font-medium text-[#FF3B30] bg-[#FF3B30]/10 rounded-full px-2 py-0.5">高优先</span>;
+      case 'medium':
+        return <span className="shrink-0 text-[11px] font-medium text-[#FF9F0A] bg-[#FF9F0A]/10 rounded-full px-2 py-0.5">中优先</span>;
+      case 'low':
+        return <span className="shrink-0 text-[11px] font-medium text-[#34C759] bg-[#34C759]/10 rounded-full px-2 py-0.5">低优先</span>;
+      default:
+        return null;
+    }
+  };
+
+  /**
+   * PHASE 4-G：提醒弹窗"查看详情"→ 定位到该日程日期并打开详情卡片。
+   * 消费焦点 id（consumeReminderFocus），避免切页后重复弹窗。
+   */
+  useEffect(() => {
+    const id = reminderFocusId;
+    if (!id) return;
+    const target = schedules.find((s) => s.id === id);
+    consumeReminderFocus();
+    if (!target) return;
+    const parts = (target.date || '').split('-').map(Number);
+    if (parts.length === 3 && parts[0] && parts[1] && parts[2]) {
+      setCurrentYear(parts[0]);
+      setCurrentMonth(parts[1] - 1);
+      setSelectedDay(parts[2]);
+    }
+    setMenuFor(null);
+    setDetailFor(target);
+  }, [reminderFocusId, consumeReminderFocus, schedules]);
 
   /**
    * PHASE 4-F · Bug 2：时间下拉选项（00:00–23:45，每 15 分钟，共 96 项，程序生成）。
@@ -236,8 +286,8 @@ export const CalendarView: React.FC = () => {
               return (
                 <div
                   key={item.id}
-                  className={`w-full bg-[#FFFFFF] rounded-[16px] p-4 border border-[#E5E5EA] shadow-apple space-y-1 ${
-                    completed ? 'opacity-60' : ''
+                  className={`w-full bg-[#FFFFFF] rounded-[16px] p-4 border border-[#E5E5EA] border-l-4 shadow-apple space-y-1 ${
+                    completed ? `opacity-60 ${getPriorityBorderClass(item.priority, true)}` : getPriorityBorderClass(item.priority)
                   }`}
                 >
                   <div className="flex items-start gap-3">
@@ -333,6 +383,70 @@ export const CalendarView: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* PHASE 4-G · 详情卡片浮层：提醒弹窗"查看详情"进入；只读展示 + 修改入口 */}
+      {detailFor && (() => {
+        const it = schedules.find((s) => s.id === detailFor.id) || detailFor;
+        const completed = it.status === 'completed';
+        return (
+          <div
+            className="fixed inset-0 z-40 bg-black/30 flex items-center justify-center p-6"
+            onClick={() => setDetailFor(null)}
+          >
+            <div
+              className="bg-[#FFFFFF] rounded-[16px] p-5 w-full max-w-[340px] space-y-3 shadow-apple"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="text-[16px] font-semibold text-[#1D1D1F] truncate">
+                  {it.title || it.task || '日程详情'}
+                </h2>
+                {completed ? (
+                  <span className="shrink-0 text-[11px] font-medium text-[#34C759] bg-[#34C759]/10 rounded-full px-2 py-0.5">
+                    已完成
+                  </span>
+                ) : (
+                  getPriorityBadge(it.priority)
+                )}
+              </div>
+              <div className="space-y-1.5 text-[13px]">
+                {it.date && (
+                  <div className="flex gap-2"><span className="w-[36px] shrink-0 text-[#86868B]">日期</span><span className="text-[#1D1D1F]">{it.date}</span></div>
+                )}
+                <div className="flex gap-2"><span className="w-[36px] shrink-0 text-[#86868B]">时间</span><span className="text-[#1D1D1F] tabular-nums">{it.time || '—'}</span></div>
+                {it.location && (
+                  <div className="flex gap-2"><span className="w-[36px] shrink-0 text-[#86868B]">地点</span><span className="text-[#1D1D1F]">{it.location}</span></div>
+                )}
+                {it.matters && (
+                  <div className="flex gap-2"><span className="w-[36px] shrink-0 text-[#86868B]">事项</span><span className="text-[#1D1D1F]">{it.matters}</span></div>
+                )}
+                {it.remindOffset && (
+                  <div className="flex gap-2"><span className="w-[36px] shrink-0 text-[#86868B]">提醒</span><span className="text-[#1D1D1F]">{it.remindOffset}</span></div>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setDetailFor(null)}
+                  className="h-[42px] rounded-[12px] bg-[#F2F2F7] hover:bg-[#E5E5EA] active:scale-95 text-[#1D1D1F] text-[14px] font-medium transition-all cursor-pointer"
+                >
+                  关闭
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDetailFor(null);
+                    handleOpenEdit(it);
+                  }}
+                  className="h-[42px] rounded-[12px] bg-[#007AFF] hover:bg-[#007AFF]/90 active:scale-95 text-[#FFFFFF] text-[14px] font-semibold transition-all cursor-pointer"
+                >
+                  修改
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* 修改日程浮层 */}
       {editingItem && (

@@ -18,7 +18,7 @@ import { NotificationToast } from './components/common/NotificationToast';
 import { ViewType } from './types';
 
 const AppContent: React.FC = () => {
-  const { currentView, setCurrentView, activeNotification, dismissNotification } = useApp();
+  const { currentView, setCurrentView, activeNotification, dismissNotification, openScheduleFromReminder } = useApp();
 
   const renderActiveView = () => {
     switch (currentView) {
@@ -52,7 +52,10 @@ const AppContent: React.FC = () => {
         notification={activeNotification}
         onDismiss={dismissNotification}
         onViewSchedule={() => {
+          const sid = activeNotification?.scheduleId;
           dismissNotification();
+          // PHASE 4-G：提醒弹窗"查看详情"→ 跳转日历并打开对应日程详情卡片
+          if (sid) openScheduleFromReminder(sid);
           setCurrentView('calendar');
         }}
       />
