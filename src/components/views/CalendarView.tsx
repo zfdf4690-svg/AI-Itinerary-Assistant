@@ -4,6 +4,7 @@ import { useApp } from '../../context/AppContext';
 import { playAudioFeedback } from '../../utils/audio';
 import { ScheduleItem } from '../../types';
 import { BottomTabBar } from '../common/BottomTabBar';
+import { WheelPicker } from '../common/WheelPicker';
 
 export const CalendarView: React.FC = () => {
   const { schedules, updateSchedule, deleteSchedule } = useApp();
@@ -21,6 +22,8 @@ export const CalendarView: React.FC = () => {
   const [editTask, setEditTask] = useState('');
   const [editLocation, setEditLocation] = useState('');
   const [editRemind, setEditRemind] = useState('');
+  /** PHASE 4-F · 提醒滚轮：以分钟数为取值（0 = 不提醒） */
+  const [editRemindMin, setEditRemindMin] = useState('0');
   /** 删除二次确认的日程 id */
   const [confirmDeleteFor, setConfirmDeleteFor] = useState<string | null>(null);
 
@@ -35,6 +38,22 @@ export const CalendarView: React.FC = () => {
     }
     return opts;
   })();
+
+  /**
+   * PHASE 4-F · 提醒滚轮选项（value = 提前分钟数，0 = 不提醒）。
+   * 与后端字段一致：remindOffset 文本 + remindOffsetMinutes 数值。
+   */
+  const REMIND_OPTIONS: { value: string; label: string; offset: number }[] = [
+    { value: '0', label: '不提醒', offset: 0 },
+    { value: '5', label: '提前5分钟', offset: 5 },
+    { value: '10', label: '提前10分钟', offset: 10 },
+    { value: '15', label: '提前15分钟', offset: 15 },
+    { value: '30', label: '提前30分钟', offset: 30 },
+    { value: '45', label: '提前45分钟', offset: 45 },
+    { value: '60', label: '提前1小时', offset: 60 },
+    { value: '120', label: '提前2小时', offset: 120 },
+    { value: '1440', label: '提前1天', offset: 1440 },
+  ];
 
   const weekHeaders = ['一', '二', '三', '四', '五', '六', '日'];
 
@@ -87,18 +106,28 @@ export const CalendarView: React.FC = () => {
     setEditTask(item.title || item.task || '');
     setEditLocation(item.location || '');
     setEditRemind(item.remindOffset || '');
+    // 提醒滚轮：以分钟数为取值；无提醒（hasAlarm=false 或 offset 缺失）→ 0（不提醒）
+    setEditRemindMin(String(
+      item.hasAlarm === false || !item.remindOffsetMinutes
+        ? 0
+        : item.remindOffsetMinutes,
+    ));
     setMenuFor(null);
   };
 
-  /** 保存编辑 → PATCH 后端并更新本地 */
+  /** 保存编辑 → PATCH 后端并更新本地（时间/提醒均来自滚轮选择） */
   const handleSaveEdit = () => {
     if (!editingItem) return;
+    const remindMin = Number(editRemindMin) || 0;
+    const remindOpt = REMIND_OPTIONS.find((o) => o.value === String(remindMin));
     const updates: Partial<ScheduleItem> = {
       time: editTime.trim(),
       task: editTask.trim() || editingItem.task,
       title: editTask.trim() || editingItem.task,
       location: editLocation.trim() || undefined,
-      remindOffset: editRemind.trim() || undefined,
+      remindOffset: remindMin > 0 && remindOpt ? remindOpt.label : undefined,
+      remindOffsetMinutes: remindMin,
+      hasAlarm: remindMin > 0,
     };
     updateSchedule(editingItem.id, updates);
     setEditingItem(null);
@@ -317,22 +346,25 @@ export const CalendarView: React.FC = () => {
           >
             <h2 className="text-[16px] font-semibold text-[#1D1D1F]">修改日程</h2>
             <div className="space-y-2">
-              {/* PHASE 4-F · Bug 2：时间改为下拉选择固定时间（15 分钟粒度）。
-                  若当前日程时间不在选项内（如历史非整点数据），追加为唯一选项保留真实值可保存。 */}
-              <select
-                value={TIME_OPTIONS.includes(editTime) ? editTime : editTime || ''}
-                onChange={(e) => setEditTime(e.target.value)}
-                className="w-full h-[42px] rounded-[12px] bg-[#F2F2F7] px-3 text-[14px] text-[#1D1D1F] outline-none focus:ring-2 focus:ring-[#007AFF]/40 cursor-pointer appearance-none"
-              >
-                {!TIME_OPTIONS.includes(editTime) && editTime && (
-                  <option value={editTime}>{editTime}（当前）</option>
-                )}
-                {TIME_OPTIONS.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </select>
+              {/* PHASE 4-F · 时间滚轮：15 分钟粒度；若原日程时间不在选项内（历史非整点），并入当前值可保存 */}
+              <div>
+                <div className="text-[12px] font-medium text-[#86868B] mb-1">时间</div>
+                <WheelPicker
+                  items={
+                    TIME_OPTIONS.includes(editTime)
+                      ? TIME_OPTIONS
+                      : [editTime, ...TIME_OPTIONS]
+                  }
+                  values={
+                    TIME_OPTIONS.includes(editTime)
+                      ? TIME_OPTIONS
+                      : [editTime, ...TIME_OPTIONS]
+                  }
+                  value={editTime}
+                  onChange={setEditTime}
+                  className="w-full bg-[#FFFFFF] rounded-[12px] border border-[#E5E5EA]"
+                />
+              </div>
               <input
                 type="text"
                 value={editTask}
@@ -347,13 +379,31 @@ export const CalendarView: React.FC = () => {
                 placeholder="地点"
                 className="w-full h-[42px] rounded-[12px] bg-[#F2F2F7] px-3 text-[14px] text-[#1D1D1F] outline-none focus:ring-2 focus:ring-[#007AFF]/40"
               />
-              <input
-                type="text"
-                value={editRemind}
-                onChange={(e) => setEditRemind(e.target.value)}
-                placeholder="提醒（如 提前30分钟）"
-                className="w-full h-[42px] rounded-[12px] bg-[#F2F2F7] px-3 text-[14px] text-[#1D1D1F] outline-none focus:ring-2 focus:ring-[#007AFF]/40"
-              />
+              {/* PHASE 4-F · 提醒滚轮：提前分钟数（不提醒/5~1440 分钟）；当前值不在选项内并入 */}
+              <div>
+                <div className="text-[12px] font-medium text-[#86868B] mb-1">提醒</div>
+                <WheelPicker
+                  items={(() => {
+                    const base = REMIND_OPTIONS.map((o) => o.label);
+                    return REMIND_OPTIONS.some((o) => o.value === editRemindMin)
+                      ? base
+                      : [`提前${editRemindMin}分钟`, ...base];
+                  })()}
+                  values={(() => {
+                    const base = REMIND_OPTIONS.map((o) => o.value);
+                    return REMIND_OPTIONS.some((o) => o.value === editRemindMin)
+                      ? base
+                      : [editRemindMin, ...base];
+                  })()}
+                  value={editRemindMin}
+                  onChange={(v) => {
+                    setEditRemindMin(v);
+                    const opt = REMIND_OPTIONS.find((o) => o.value === v);
+                    setEditRemind(opt && Number(v) > 0 ? opt.label : '');
+                  }}
+                  className="w-full bg-[#FFFFFF] rounded-[12px] border border-[#E5E5EA]"
+                />
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-2 pt-1">
               <button
