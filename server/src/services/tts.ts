@@ -13,7 +13,9 @@ export interface TtsResult {
 }
 
 export function ttsReady(cfg: MiniMaxConfig): boolean {
-  return cfg.enabled && Boolean(cfg.apiKey.trim()) && Boolean(cfg.groupId.trim());
+  // PHASE 4-G：MiniMax 新版控制台已不再暴露 Group ID，纯 API Key（Bearer）鉴权即可；
+  // 兼容旧模式：配置了 groupId 时仍走 URL GroupId 参数。
+  return cfg.enabled && Boolean(cfg.apiKey.trim());
 }
 
 /** 调用 MiniMax T2A v2，返回 mp3（hex → base64）。voiceOverride 可指定 voice_id（任务书 {text, voice} 兼容） */
@@ -26,7 +28,8 @@ export async function synthesizeTts(
   const persona = getPersona(personaId);
   const voice = persona.voice;
   const voiceId = voiceOverride?.trim() || voice.voiceId;
-  const url = `https://api.minimax.chat/v1/t2a_v2?GroupId=${encodeURIComponent(cfg.groupId.trim())}`;
+  const qs = cfg.groupId.trim() ? `?GroupId=${encodeURIComponent(cfg.groupId.trim())}` : '';
+  const url = `https://api.minimax.chat/v1/t2a_v2${qs}`;
 
   const resp = await fetch(url, {
     method: 'POST',
