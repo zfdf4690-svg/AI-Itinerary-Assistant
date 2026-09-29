@@ -96,8 +96,8 @@ export function parseUtterance(text: string, currentDraft?: Partial<ParsedSlots>
   }
 
   // ---- 2. 时间 ----
-  // HH:mm / H:mm
-  const clockMatch = normalized.match(/(\d{1,2}):(\d{2})/);
+  // HH:mm / H:mm / HH.mm / HH．mm（兼容中文输入法点号）
+  const clockMatch = normalized.match(/(\d{1,2})[:.．。](\d{2})/);
   if (clockMatch) {
     const h = parseInt(clockMatch[1], 10);
     const min = parseInt(clockMatch[2], 10);
@@ -125,7 +125,7 @@ export function parseUtterance(text: string, currentDraft?: Partial<ParsedSlots>
   // ---- 3. 地点 ----
   // 时间/日期类表达（用于与地点“改到/换成”规则互斥）
   const isTimePhrase = (x: string): boolean =>
-    /点|上午|下午|晚上|中午|今天|明天|后天|大后天|周[一二三四五六日天]|\d{1,2}:\d{2}|\d{1,2}月\d{1,2}日/.test(x);
+    /点|上午|下午|晚上|中午|今天|明天|后天|大后天|周[一二三四五六日天]|\d{1,2}:\d{2}|\d{1,2}[.．。]\d{2}|\d{1,2}月\d{1,2}日|提前|提醒|分钟|小时/.test(x);
 
   // 修正型：地点改成X / 地点改到X / 换成X（显式地点前缀优先）
   const locExplicit = normalized.match(/(?:地点|位置)(?:改成|改为|换到|改到|换成|移到|挪到)\s*([^，,。！？!?\s]{1,16})/);
@@ -257,12 +257,11 @@ export function extractPreferenceFromText(text: string): { key: string; value: n
   return { key, value: minutes };
 }
 
-/** 生成日期兜底：未指定日期时默认明天（与前端既有行为一致） */
+/** 生成日期兜底：未指定日期时默认当天（PHASE 4-G：不再默认明天；若当天时间已过，由对话层询问具体日期） */
 export function ensureDefaultDate(slots: ParsedSlots): ParsedSlots {
   if (!slots.date) {
-    const d = dateByOffset(1);
-    slots.date = d.date;
-    slots.dateLabel = formatDateLabel(d.date);
+    slots.date = todayStr();
+    slots.dateLabel = formatDateLabel(todayStr());
   }
   return slots;
 }

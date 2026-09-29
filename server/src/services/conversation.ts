@@ -19,7 +19,7 @@ import { genId, Repos } from '../db/repos.js';
 import { getPersona } from './personas.js';
 import { parseWithLLMOrLocal, generateReplyWithContext } from './llm.js';
 import { checkCompleteness, extractPreferenceFromText } from './nlu.js';
-import { isRefusal } from '../utils/date.js';
+import { isRefusal, isScheduleTimePassed } from '../utils/date.js';
 import { buildScheduleFromSlots, validateRequiredFields } from './schedule.js';
 import { checkScheduleConflict } from './conflictChecker.js';
 import { recordEntities, recordEvent, setPreference } from './memory.js';
@@ -82,6 +82,15 @@ function decideNext(
       state: 'awaiting_clarify',
       reply: persona.prompt.askRequired(missingRequired),
       missing: missingRequired,
+      action: 'ASK_REQUIRED',
+    };
+  }
+  // PHASE 4-G：未指定日期默认当天；若当天时间已过实时，必须询问具体日期（不静默直接落卡到已过期时间）
+  if (isScheduleTimePassed(draft.date, draft.time)) {
+    return {
+      state: 'awaiting_clarify',
+      reply: `今天 ${draft.time} 已经过了，你想安排在哪一天呢？`,
+      missing: ['date'],
       action: 'ASK_REQUIRED',
     };
   }
@@ -230,7 +239,13 @@ export async function runTurn(repos: Repos, conv: Conversation, utterance: strin
   if (refusal) {
     // 用户拒绝/终止补充（PRD §4：AI 可以询问，但不能因为用户不愿补充可选信息而阻塞创建）
     const { missingRequired } = checkCompleteness(conv.draft as ParsedSlots);
-    if (missingRequired.length > 0) {
+    // PHASE 4-G：必填已齐但当天时间已过实时 → 仍须询问具体日期（拒绝补充可选字段不能绕过该拦截）
+    if (missingRequired.length === 0 && isScheduleTimePassed(conv.draft.date, conv.draft.time)) {
+      conv.state = 'awaiting_clarify';
+      conv.missing = ['date'];
+      conv.action = 'ASK_REQUIRED';
+      reply = `今天 ${conv.draft.time} 已经过了，你想安排在哪一天呢？`;
+    } else if (missingRequired.length > 0) {
       conv.state = 'awaiting_clarify';
       conv.missing = missingRequired;
       conv.action = 'ASK_REQUIRED';
@@ -499,6 +514,18 @@ export async function understandOneShot(
 
   if (refusal && input.currentDraft) {
     const { missingRequired, missingOptional } = checkCompleteness(draft as ParsedSlots);
+    // PHASE 4-G：必填已齐但当天时间已过实时 → 询问具体日期
+    if (missingRequired.length === 0 && isScheduleTimePassed(draft.date, draft.time)) {
+      return {
+        state: 'awaiting_clarify',
+        slots: draft,
+        missingRequired: ['date'],
+        missingOptional: [],
+        replyText: `今天 ${draft.time} 已经过了，你想安排在哪一天呢？`,
+        source: 'local',
+        actionRequired: 'ASK_REQUIRED',
+      };
+    }
     const reply = missingRequired.length > 0
       ? persona.prompt.askRequired(missingRequired)
       : persona.prompt.refuseAccepted;

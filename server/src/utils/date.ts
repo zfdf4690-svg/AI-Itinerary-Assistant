@@ -110,6 +110,19 @@ export function dateTimeToDate(date: string, time: string): Date | null {
   return d;
 }
 
+/**
+ * PHASE 4-G：日程时间是否已过实时。
+ * 仅对「当天」生效（date === 今天 且 时间 < 当前时刻返回 true）；
+ * 未来日期永远返回 false。用于"未指定日期默认当天，但当天时间已过 → 询问具体日期"。
+ */
+export function isScheduleTimePassed(date: string | undefined, time: string | undefined): boolean {
+  if (!date || !time) return false;
+  if (date !== todayStr()) return false;
+  const target = dateTimeToDate(date, time);
+  if (!target) return false;
+  return target.getTime() < Date.now();
+}
+
 /** 归一化保留原有 draft 字段，只合并解析出的新槽位 */
 export function isRefusal(text: string): boolean {
   const t = text.trim();
