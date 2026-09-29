@@ -31,6 +31,8 @@ import {
   apiCreateConversation,
   apiCreateSchedule,
   apiDeleteSchedule,
+  apiDismissReminder,
+  apiGetActiveReminders,
   apiListSchedules,
   apiPutConfig,
   apiTts,
@@ -168,6 +170,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [lastLlmSource, setLastLlmSource] = useState<'deepseek' | 'local_fallback' | null>(null);
   const [activeNotification, setActiveNotification] = useState<BackgroundNotificationToast | null>(null);
   const triggeredTaskIds = useRef<Set<string>>(new Set());
+  /** 已弹过后端日程提醒的 id（去重：弹过即 dismiss，避免重复弹） */
+  const polledReminderIds = useRef<Set<string>>(new Set());
   /** 当前会话流 id（后端在线时使用，任务书 Phase 4） */
   const convIdRef = useRef<string | null>(null);
 
@@ -386,6 +390,48 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const interval = setInterval(checkAlarms, 10000); // Poll every 10s
     return () => clearInterval(interval);
   }, [dailyReminderConfig, schedules, activePersona, autoVoiceEnabled, backendStatus]);
+
+  // 后端提醒消费通道：轮询 /reminders/active，真实弹出日程到点提醒（schedule_alarm）+ 语音播报
+  // （后端 Reminder Engine 每 20s 扫描日程生成提醒记录；此处把记录拉回前端展示，弹过即 dismiss）
+  useEffect(() => {
+    if (backendStatus !== 'online') return;
+    let cancelled = false;
+
+    const pollBackendReminders = async () => {
+      try {
+        const { items } = await apiGetActiveReminders();
+        if (cancelled || !items || items.length === 0) return;
+        for (const r of items) {
+          if (r.type !== 'schedule_alarm') continue;
+          if (polledReminderIds.current.has(r.id)) continue;
+          polledReminderIds.current.add(r.id);
+          const timeStr = new Date(r.dueAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+          const prio: SchedulePriority = r.priority === 'high' || r.priority === 'low' ? r.priority : 'medium';
+          setActiveNotification({
+            id: `toast-${r.id}`,
+            type: 'schedule_alarm',
+            title: r.title,
+            message: r.message,
+            timeStr,
+            priority: prio,
+            personaName: activePersona.name,
+          });
+          if (autoVoiceEnabled) {
+            speakSmart(r.message, { pitch: activePersona.speechPitch, rate: activePersona.speechRate });
+          } else {
+            playAudioFeedback('bubble');
+          }
+          apiDismissReminder(r.id).catch(() => {});
+        }
+      } catch {
+        // 后端瞬断静默，下次轮询自动恢复
+      }
+    };
+
+    pollBackendReminders();
+    const timer = setInterval(pollBackendReminders, 10000);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [backendStatus, autoVoiceEnabled, activePersona]);
 
   // Test trigger for demonstration
   const triggerManualReminderTest = (priority: SchedulePriority = 'high') => {

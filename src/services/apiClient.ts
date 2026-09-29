@@ -200,8 +200,13 @@ export async function apiDeleteSchedule(id: string): Promise<{ ok: boolean; id: 
 }
 
 /** 活跃提醒：GET /reminders/active */
-export async function apiGetActiveReminders(): Promise<{ items: { id: string; type: string; title: string; message: string; dueAt: number }[]; total: number }> {
+export async function apiGetActiveReminders(): Promise<{ items: { id: string; type: string; title: string; message: string; dueAt: number; priority?: string }[]; total: number }> {
   return request('/reminders/active');
+}
+
+/** 标记提醒已处理：PATCH /reminders/:id/dismiss */
+export async function apiDismissReminder(id: string): Promise<{ ok: boolean; id: string }> {
+  return request(`/reminders/${id}/dismiss`, { method: 'PATCH' });
 }
 
 /** 配置读取：GET /config（Key 脱敏） */
