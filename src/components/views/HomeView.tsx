@@ -22,6 +22,7 @@ export const HomeView: React.FC = () => {
     setCurrentView,
     chatMessages,
     currentDraft,
+    convIdRef,
     resetChatWithUtterance,
     applyModification,
     confirmDraftSchedule,
@@ -112,8 +113,10 @@ export const HomeView: React.FC = () => {
     if (!val) return;
     playAudioFeedback('tap');
     setInputText('');
-    // 对话中且有草稿 → 多轮修改/补充；否则开启新会话
-    if (inConversation && currentDraft) applyModification(val);
+    // PHASE 4-E · F3：会话延续以 convIdRef 为事实（而非 currentDraft）——
+    // convId 存在 → 多轮修改/补充/确认走 applyModification（后端 /turn 流）；
+    // 否则开启新会话（首轮或会话已结束）。currentDraft 只负责 UI 展示。
+    if (inConversation && convIdRef.current) applyModification(val);
     else resetChatWithUtterance(val);
   };
 

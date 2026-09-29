@@ -37,6 +37,15 @@ const FIELD_NAMES: Record<string, string> = {
   priority: '优先级',
 };
 
+/** PHASE 4-E · F7：创建失败时的系统回复（绝不返回"已创建"） */
+const CREATE_FAILED_REPLY = '抱歉，日程创建暂时失败了，请稍后再试或重新说一次哦。';
+
+/** PHASE 4-E · F6：开发环境 Context 调试日志（生产环境不输出） */
+function contextLog(msg: string): void {
+  if (process.env.NODE_ENV === 'production') return;
+  console.log(msg);
+}
+
 export interface TurnOptions {
   utterance: string;
   personaId?: string;
@@ -44,13 +53,6 @@ export interface TurnOptions {
 
 function now(): number {
   return Date.now();
-}
-
-function lastUserText(conv: Conversation): string {
-  for (let i = conv.turns.length - 1; i >= 0; i -= 1) {
-    if (conv.turns[i].role === 'user') return conv.turns[i].text;
-  }
-  return '';
 }
 
 function changedFields(prev: Partial<ScheduleItem>, next: Partial<ScheduleItem>): string[] {
@@ -152,10 +154,16 @@ export async function runTurn(repos: Repos, conv: Conversation, utterance: strin
     conv.state = 'input';
   }
 
+  // PHASE 4-E · F6：Context 调试日志（开发环境）
+  contextLog(
+    `[CONTEXT] conversationId=${conv.id} state=${conv.state} intent=${conv.intent} draft=${JSON.stringify(conv.draft)} missing=${JSON.stringify(conv.missing)} latestUtterance=${utterance}`,
+  );
+
   // ① Intent Router：User Input + Conversation Context → Intent
   let { intent, confidence } = routeIntent(utterance, conv);
   conv.intent = intent;
   conv.intentConfidence = confidence;
+  contextLog(`[ROUTER] intent=${intent} confidence=${confidence} latestUtterance=${utterance}`);
 
   // ② schedule_confirm：存在待确认草稿 + 用户明确肯定 → 直接创建
   if (intent === 'schedule_confirm') {
@@ -163,6 +171,7 @@ export async function runTurn(repos: Repos, conv: Conversation, utterance: strin
     if (validation.ok) {
       const confirmed = await confirmConversation(repos, conv);
       if ('schedule' in confirmed) {
+        contextLog(`[DECISION] action=CREATE_SCHEDULE scheduleId=${confirmed.schedule.id}`);
         return confirmed.conv; // confirmConversation 已写入 ai turn + state=created
       }
     }
@@ -334,6 +343,35 @@ function tryRecordPreference(repos: Repos, text: string): void {
   }
 }
 
+/**
+ * PHASE 4-E · F1：确定性 Schedule 创建（confirm 与 understand 共用）。
+ * 只做：必填校验 → 构建 → 入库 → Event/Entity 记忆；失败必须 throw，由调用方决定回复。
+ * 绝不在此返回"已创建"文案（F7：数据库未写入 ≠ 创建成功）。
+ */
+export async function createScheduleFromConversationDraft(
+  repos: Repos,
+  src: { personaId: string; draft?: Partial<ScheduleItem>; turns?: Conversation['turns'] },
+): Promise<ScheduleItem> {
+  const validation = validateRequiredFields(src.draft as ParsedSlots);
+  if (!validation.ok) {
+    throw new Error(`createScheduleFromConversationDraft: 缺少必填字段 ${(validation.missingRequired || []).join(',')}`);
+  }
+  const schedule = buildScheduleFromSlots(repos, src.draft as ParsedSlots);
+  repos.schedules.unshift(schedule);
+  repos.saveSchedules();
+  recordEvent(repos, schedule);
+  const userTurns = src.turns || [];
+  let lastUser = '';
+  for (let i = userTurns.length - 1; i >= 0; i -= 1) {
+    if (userTurns[i].role === 'user') {
+      lastUser = userTurns[i].text;
+      break;
+    }
+  }
+  recordEntities(repos, lastUser, { location: schedule.location, task: schedule.task });
+  return schedule;
+}
+
 /** 确认创建日程（④ → ⑤） */
 export async function confirmConversation(repos: Repos, conv: Conversation): Promise<{ conv: Conversation; schedule: ScheduleItem } | { conv: Conversation; error: string; missingRequired: string[] }> {
   const validation = validateRequiredFields(conv.draft);
@@ -349,18 +387,27 @@ export async function confirmConversation(repos: Repos, conv: Conversation): Pro
     return { conv, error: '缺少必填字段', missingRequired: validation.missingRequired || [] };
   }
 
-  const schedule = buildScheduleFromSlots(repos, conv.draft as ParsedSlots);
+  let schedule: ScheduleItem;
+  try {
+    schedule = await createScheduleFromConversationDraft(repos, {
+      personaId: conv.personaId,
+      draft: conv.draft,
+      turns: conv.turns,
+    });
+  } catch (err) {
+    // PHASE 4-E · F7：创建失败 → 明确告知失败，绝不返回"已创建"
+    contextLog(`[DECISION] action=CREATE_SCHEDULE_FAILED ${String(err)}`);
+    const persona = getPersona(conv.personaId);
+    conv.turns.push({ role: 'ai', text: CREATE_FAILED_REPLY, at: now() });
+    conv.updatedAt = now();
+    repos.saveConversations();
+    return { conv, error: '创建失败', missingRequired: [] };
+  }
   // PHASE 4-D · D3：Confirm 时重算一次冲突，防止卡片阶段的结果过期；
   // 即使冲突发生变化，也只更新提示（随 response 返回前端）并交由用户决定，绝不自动拒绝创建。
   if (conv.draft.date && conv.draft.time) {
     conv.conflict = checkScheduleConflict(repos, { date: conv.draft.date, time: conv.draft.time });
   }
-  repos.schedules.unshift(schedule);
-  repos.saveSchedules();
-
-  // Memory Layer：Event + Entity
-  recordEvent(repos, schedule);
-  recordEntities(repos, lastUserText(conv), { location: schedule.location, task: schedule.task });
 
   conv.state = 'created';
   conv.action = 'NONE';
@@ -387,7 +434,55 @@ export async function understandOneShot(
   const pseudoConv = input.currentDraft && Object.keys(input.currentDraft).length > 0
     ? ({ state: 'awaiting_supplement', draft: input.currentDraft } as Conversation)
     : undefined;
-  const { intent } = routeIntent(input.utterance, pseudoConv);
+  const { intent, confidence } = routeIntent(input.utterance, pseudoConv);
+  contextLog(`[CONTEXT] conversationId=none state=${pseudoConv?.state ?? 'none'} intent=${intent} draft=${JSON.stringify(draft)} latestUtterance=${input.utterance}`);
+  contextLog(`[ROUTER] intent=${intent} confidence=${confidence} latestUtterance=${input.utterance}`);
+
+  // PHASE 4-E · F1：schedule_confirm + 必填完整 → 确定性创建（绝不二次交给 LLM/NLU/general_chat）。
+  // 修复前：确认短语落入 parseWithLLMOrLocal → LLM 在线"假创建"回复 / LLM 失败 general_chat。
+  if (intent === 'schedule_confirm') {
+    const validation = validateRequiredFields(draft);
+    if (!validation.ok) {
+      return {
+        state: 'awaiting_clarify',
+        slots: draft,
+        missingRequired: validation.missingRequired || [],
+        missingOptional: [],
+        replyText: persona.prompt.askRequired(validation.missingRequired || []),
+        source: 'local',
+        actionRequired: 'ASK_REQUIRED',
+      };
+    }
+    try {
+      const schedule = await createScheduleFromConversationDraft(repos, {
+        personaId: persona.id,
+        draft,
+        turns: [],
+      });
+      contextLog(`[DECISION] action=CREATE_SCHEDULE scheduleId=${schedule.id}`);
+      return {
+        state: 'created',
+        slots: { ...draft },
+        missingRequired: [],
+        missingOptional: [],
+        replyText: persona.prompt.confirmCreated(schedule.title),
+        source: 'deterministic',
+        actionRequired: 'NONE',
+      };
+    } catch (err) {
+      // F7：创建失败必须如实告知，绝不返回"已创建"
+      contextLog(`[DECISION] action=CREATE_SCHEDULE_FAILED ${String(err)}`);
+      return {
+        state: 'awaiting_supplement',
+        slots: draft,
+        missingRequired: [],
+        missingOptional: [],
+        replyText: CREATE_FAILED_REPLY,
+        source: 'local',
+        actionRequired: 'NONE',
+      };
+    }
+  }
 
   // general_chat：绝不进 NLU
   if (intent === 'general_chat' && !input.currentDraft) {

@@ -77,6 +77,8 @@ interface AppContextType {
   currentDraft: Partial<ScheduleItem> | null;
   setCurrentDraft: React.Dispatch<React.SetStateAction<Partial<ScheduleItem> | null>>;
   chatMessages: ChatMessage[];
+  /** PHASE 4-E · F3：当前会话流引用（null = 无活动会话）。前端以它为会话事实，而非 currentDraft。 */
+  convIdRef: React.MutableRefObject<string | null>;
   resetChatWithUtterance: (utterance: string) => void;
   applyModification: (correctionText: string) => void;
   confirmDraftSchedule: () => Promise<ScheduleItem | null>;
@@ -619,6 +621,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           replyText = lastAiText(conv, '好的，我已为你更新相关信息。\n这样安排可以吗？');
         } else {
           const result = await apiUnderstand(correctionText, currentDraft, activePersonaId);
+          // PHASE 4-E · F4：单轮路径（convId 丢失）确认创建成功 → 与 turn 路径一致：
+          // 清草稿 + 成功消息 + 刷新列表（后端 F1 已保证 created = 真实落库，绝无假创建）
+          if (result.state === 'created') {
+            setCurrentDraft(null);
+            setChatMessages((prev) => [
+              ...prev,
+              {
+                id: `msg-${Date.now()}-created`,
+                sender: 'ai',
+                text: result.replyText || '已为你创建日程，我会在事前提醒你。',
+                timestamp: Date.now(),
+              },
+            ]);
+            setCurrentView('home');
+            try {
+              const list = await apiListSchedules();
+              if (list?.items) setSchedules(list.items);
+            } catch (err) {
+              console.warn('[backend] 刷新日程列表失败', err);
+            }
+            setIsLlmProcessing(false);
+            playAudioFeedback('success');
+            return;
+          }
           slots = result.slots && Object.keys(result.slots).length > 0
             ? result.slots
             : undefined;
@@ -919,6 +945,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         currentDraft,
         setCurrentDraft,
         chatMessages,
+        convIdRef,
         resetChatWithUtterance,
         applyModification,
         confirmDraftSchedule,

@@ -122,7 +122,8 @@ export interface UnderstandResult {
   /** 缺失的可选字段（地点/事项/提醒） */
   missingOptional: string[];
   replyText: string;
-  source: 'llm' | 'local';
+  /** PHASE 4-E · F1：单轮确认创建由确定性规则执行（非 LLM/NLU 输出） */
+  source: 'llm' | 'local' | 'deterministic';
   /** 前端下一步动作（任务书 §8/§9：ASK_OPTIONAL / SHOW_SCHEDULE_CARD 等） */
   actionRequired: ActionType;
 }

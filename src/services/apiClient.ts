@@ -34,7 +34,8 @@ export interface BackendUnderstandResult {
   missingRequired: string[];
   missingOptional: string[];
   replyText: string;
-  source: 'llm' | 'local';
+  /** PHASE 4-E · F1：单轮确认创建由确定性规则执行（非 LLM/NLU 输出） */
+  source: 'llm' | 'local' | 'deterministic';
   actionRequired: BackendActionType;
 }
 
