@@ -460,9 +460,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // 首轮语音输入 → 后端会话流（任务书 Phase 4）；离线时走本地 NLU + DeepSeek 双模
   const resetChatWithUtterance = async (utterance: string) => {
+    // PHASE 4-F · F4-1：请求开始前立即上屏用户消息 + 进入聊天视图 + Processing 状态，
+    // 避免首轮等待后端 LLM 期间页面无任何反馈（10~17s 空白导致“输入没进去”的错觉）。
+    setChatMessages((prev) => [
+      ...prev,
+      {
+        id: `msg-${Date.now()}-user`,
+        sender: 'user',
+        text: utterance,
+        timestamp: Date.now(),
+      },
+    ]);
+    setCurrentView('home');
+    setIsLlmProcessing(true);
+
     // 后端在线：创建会话，由后端完成理解 → 追问 → 卡片（权威链路）
     if (backendStatus === 'online') {
-      setIsLlmProcessing(true);
       try {
         const conv = await apiCreateConversation(utterance, activePersonaId);
         convIdRef.current = conv.id;
@@ -494,7 +507,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return;
       } catch (err) {
         console.warn('[backend] 创建会话失败，降级本地', err);
-        setIsLlmProcessing(false);
+        // PHASE 4-F · F4-2：不在此置 false，继续走下方本地立即路径；由该路径末尾统一关闭 Processing
       }
     }
 
@@ -531,6 +544,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     setChatMessages((prev) => [...prev, ...initialMessages]);
     setCurrentView('home');
+    // PHASE 4-F · F4-2：本地立即路径结束 → 关闭 Processing（若启用了 DeepSeek 异步增强，其分支会自行管理）
+    setIsLlmProcessing(false);
     playAudioFeedback('bubble');
 
     // 2. If DeepSeek is enabled and configured, run DeepSeek extraction asynchronously

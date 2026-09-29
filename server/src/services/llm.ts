@@ -20,6 +20,12 @@ export interface LLMOrLocalResult {
 /** 合法 intent 集合 */
 const INTENTS: ConversationIntent[] = ['schedule_create', 'schedule_modify', 'schedule_confirm', 'schedule_cancel', 'general_chat'];
 
+/**
+ * PHASE 4-F · F4-3：LLM 请求超时（毫秒）。默认 8000，可用 LLM_TIMEOUT_MS 环境变量覆盖。
+ * 超时（AbortError）进入既有 catch → 本地 NLU / 模板兜底，绝不让用户看到错误，也绝不假创建。
+ */
+export const LLM_TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS || 8000);
+
 /** 构建 LLM 系统 Prompt（含 Persona 表达、Intent 判定与字段白名单） */
 export function buildSystemPrompt(persona: Persona, isModification: boolean): string {
   return `${persona.prompt.system}
@@ -157,7 +163,7 @@ export async function parseWithLLMOrLocal(
           temperature: 0.2,
           response_format: { type: 'json_object' },
         }),
-        signal: AbortSignal.timeout(15000),
+        signal: AbortSignal.timeout(LLM_TIMEOUT_MS),
       });
 
       if (!resp.ok) {
@@ -369,7 +375,7 @@ ${history}
         ],
         temperature: 0.7,
         max_tokens: 200,
-        signal: AbortSignal.timeout(15000),
+        signal: AbortSignal.timeout(LLM_TIMEOUT_MS),
       }),
     });
     if (!resp.ok) {

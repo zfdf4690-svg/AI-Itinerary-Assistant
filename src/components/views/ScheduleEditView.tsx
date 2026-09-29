@@ -2,29 +2,56 @@ import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { playAudioFeedback } from '../../utils/audio';
 
+/**
+ * PHASE 4-F · Bug 2：编辑日程输入规范化。
+ * 1) 时间改为下拉选择固定时间（00:00–23:45，每 15 分钟，程序生成 96 项）；
+ * 2) 日期改为 <input type="date">（YYYY-MM-DD 合法输入）；
+ * 3) 彻底删除编造默认值（09月29日/15:00/陆家嘴/与张总开会/二期项目/提前30分钟）：
+ *    初始化优先级 = currentDraft 真实值 → 空值占位，placeholder 不作为实际 value。
+ */
+
+/** 15 分钟粒度时间选项（程序生成，勿手写） */
+function buildTimeOptions(): string[] {
+  const opts: string[] = [];
+  for (let m = 0; m < 24 * 60; m += 15) {
+    opts.push(`${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`);
+  }
+  return opts;
+}
+const TIME_OPTIONS = buildTimeOptions();
+
+/** YYYY-MM-DD → 人类可读日期标签（如 2026-09-30 → 2026年9月30日）；非法输入返回空 */
+function formatDateLabel(value: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
+  if (!m) return '';
+  return `${m[1]}年${Number(m[2])}月${Number(m[3])}日`;
+}
+
 export const ScheduleEditView: React.FC = () => {
   const { currentDraft, setCurrentDraft, setCurrentView, applyModification } = useApp();
 
-  const [dateStr, setDateStr] = useState(currentDraft?.dateLabel || '09月29日');
-  const [timeStr, setTimeStr] = useState(currentDraft?.time || '15:00');
-  const [locationStr, setLocationStr] = useState(currentDraft?.location || '陆家嘴');
-  const [taskStr, setTaskStr] = useState(currentDraft?.task || '与张总开会');
-  const [mattersStr, setMattersStr] = useState(currentDraft?.matters || '二期项目');
-  const [remindStr, setRemindStr] = useState(currentDraft?.remindOffset || '提前 30 分钟');
+  // PHASE 4-F：只从 currentDraft 真实回填；无值则为空（placeholder 仅为提示，不参与保存）
+  const [dateValue, setDateValue] = useState(currentDraft?.date || '');
+  const [timeStr, setTimeStr] = useState(currentDraft?.time || '');
+  const [locationStr, setLocationStr] = useState(currentDraft?.location || '');
+  const [taskStr, setTaskStr] = useState(currentDraft?.task || '');
+  const [mattersStr, setMattersStr] = useState(currentDraft?.matters || '');
+  const [remindStr, setRemindStr] = useState(currentDraft?.remindOffset || '');
 
   const handleSave = () => {
     if (!currentDraft) return;
     playAudioFeedback('tap');
 
+    const dateLabel = formatDateLabel(dateValue) || currentDraft.dateLabel;
     const updated = {
       ...currentDraft,
-      dateLabel: dateStr,
+      ...(dateValue ? { date: dateValue, dateLabel } : {}),
       time: timeStr,
-      location: locationStr,
+      location: locationStr || undefined,
       task: taskStr,
       title: taskStr,
-      matters: mattersStr,
-      remindOffset: remindStr
+      matters: mattersStr || undefined,
+      remindOffset: remindStr || undefined,
     };
 
     setCurrentDraft(updated);
@@ -64,25 +91,38 @@ export const ScheduleEditView: React.FC = () => {
 
       {/* Structured Lightweight Form */}
       <div className="flex-1 px-6 py-5 space-y-4">
-        {/* 时间 */}
+        {/* 日期（PHASE 4-F：合法日期输入，不再自由文本） */}
+        <div className="space-y-1.5">
+          <label className="text-[13px] font-medium text-[#86868B] block">
+            日期
+          </label>
+          <input
+            type="date"
+            value={dateValue}
+            onChange={(e) => setDateValue(e.target.value)}
+            className="w-full h-[42px] px-3.5 bg-[#FFFFFF] rounded-[12px] border border-[#D2D2D7] text-[15px] text-[#1D1D1F] outline-none focus:border-[#007AFF] transition-colors tabular-nums"
+          />
+        </div>
+
+        {/* 时间（PHASE 4-F：下拉选择固定时间，15 分钟粒度） */}
         <div className="space-y-1.5">
           <label className="text-[13px] font-medium text-[#86868B] block">
             时间
           </label>
-          <div className="grid grid-cols-2 gap-2">
-            <input
-              type="text"
-              value={dateStr}
-              onChange={(e) => setDateStr(e.target.value)}
-              className="w-full h-[42px] px-3.5 bg-[#FFFFFF] rounded-[12px] border border-[#D2D2D7] text-[15px] text-[#1D1D1F] outline-none focus:border-[#007AFF] transition-colors"
-            />
-            <input
-              type="text"
-              value={timeStr}
-              onChange={(e) => setTimeStr(e.target.value)}
-              className="w-full h-[42px] px-3.5 bg-[#FFFFFF] rounded-[12px] border border-[#D2D2D7] text-[15px] text-[#1D1D1F] outline-none focus:border-[#007AFF] transition-colors tabular-nums"
-            />
-          </div>
+          <select
+            value={TIME_OPTIONS.includes(timeStr) ? timeStr : timeStr || ''}
+            onChange={(e) => setTimeStr(e.target.value)}
+            className="w-full h-[42px] px-3.5 bg-[#FFFFFF] rounded-[12px] border border-[#D2D2D7] text-[15px] text-[#1D1D1F] outline-none focus:border-[#007AFF] transition-colors tabular-nums cursor-pointer appearance-none"
+          >
+            {!TIME_OPTIONS.includes(timeStr) && timeStr && (
+              <option value={timeStr}>{timeStr}（当前）</option>
+            )}
+            {TIME_OPTIONS.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </select>
         </div>
 
         {/* 地点 */}

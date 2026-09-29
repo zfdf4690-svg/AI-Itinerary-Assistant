@@ -24,6 +24,18 @@ export const CalendarView: React.FC = () => {
   /** 删除二次确认的日程 id */
   const [confirmDeleteFor, setConfirmDeleteFor] = useState<string | null>(null);
 
+  /**
+   * PHASE 4-F · Bug 2：时间下拉选项（00:00–23:45，每 15 分钟，共 96 项，程序生成）。
+   * 编辑浮层只允许从固定时间窗口选择，杜绝自由文本乱填。
+   */
+  const TIME_OPTIONS: string[] = (() => {
+    const opts: string[] = [];
+    for (let m = 0; m < 24 * 60; m += 15) {
+      opts.push(`${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`);
+    }
+    return opts;
+  })();
+
   const weekHeaders = ['一', '二', '三', '四', '五', '六', '日'];
 
   // Days in month
@@ -305,13 +317,22 @@ export const CalendarView: React.FC = () => {
           >
             <h2 className="text-[16px] font-semibold text-[#1D1D1F]">修改日程</h2>
             <div className="space-y-2">
-              <input
-                type="text"
-                value={editTime}
+              {/* PHASE 4-F · Bug 2：时间改为下拉选择固定时间（15 分钟粒度）。
+                  若当前日程时间不在选项内（如历史非整点数据），追加为唯一选项保留真实值可保存。 */}
+              <select
+                value={TIME_OPTIONS.includes(editTime) ? editTime : editTime || ''}
                 onChange={(e) => setEditTime(e.target.value)}
-                placeholder="时间（如 14:00）"
-                className="w-full h-[42px] rounded-[12px] bg-[#F2F2F7] px-3 text-[14px] text-[#1D1D1F] outline-none focus:ring-2 focus:ring-[#007AFF]/40"
-              />
+                className="w-full h-[42px] rounded-[12px] bg-[#F2F2F7] px-3 text-[14px] text-[#1D1D1F] outline-none focus:ring-2 focus:ring-[#007AFF]/40 cursor-pointer appearance-none"
+              >
+                {!TIME_OPTIONS.includes(editTime) && editTime && (
+                  <option value={editTime}>{editTime}（当前）</option>
+                )}
+                {TIME_OPTIONS.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
               <input
                 type="text"
                 value={editTask}

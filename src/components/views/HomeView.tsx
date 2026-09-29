@@ -375,8 +375,14 @@ export const HomeView: React.FC = () => {
 
           {isLlmProcessing && (
             <div className="flex justify-start">
-              <div className="bg-[#FFFFFF] text-[#86868B] rounded-[18px] rounded-bl-[6px] px-4 py-2.5 text-[14px] shadow-apple">
-                正在理解…
+              <div className="bg-[#FFFFFF] text-[#86868B] rounded-[18px] rounded-bl-[6px] px-4 py-2.5 text-[14px] shadow-apple flex items-center gap-1.5">
+                {/* PHASE 4-F · F4-2：自然产品语言 + 三点动画，不暴露 API/LLM/fetch */}
+                <span>正在理解你的安排</span>
+                <span className="inline-flex gap-0.5">
+                  <span className="w-1 h-1 rounded-full bg-[#86868B] animate-pulse" />
+                  <span className="w-1 h-1 rounded-full bg-[#86868B] animate-pulse [animation-delay:150ms]" />
+                  <span className="w-1 h-1 rounded-full bg-[#86868B] animate-pulse [animation-delay:300ms]" />
+                </span>
               </div>
             </div>
           )}
