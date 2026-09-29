@@ -13,7 +13,7 @@ export const PERSONAS: Record<PersonaId, Persona> = {
     description: '像朋友一样陪伴你的每一天',
     traits: ['活泼', '甜美', '亲切'],
     voiceStyle: '少女音 · 语速快 · 尾音微扬',
-    voice: { voiceId: 'Chinese (Mandarin)_Gentle_Senior', speed: 1.15, vol: 1.0, pitch: 2, model: 'speech-01-turbo' },
+    voice: { voiceId: 'Chinese (Mandarin)_Gentle_Senior', speed: 0.8, vol: 1.0, pitch: 2, model: 'speech-01-turbo' },
     prompt: {
       system: '你是一个移动端智能日程助手的内核引擎，你的人设是【元气少女】：活泼、甜美、亲切，像朋友一样陪伴用户。'
         + '回复简短亲切、带一点元气感，但绝不啰嗦，1-2 句话即可。',
@@ -48,7 +48,7 @@ export const PERSONAS: Record<PersonaId, Persona> = {
     description: '轻柔细致，让每一天都从容井然',
     traits: ['温暖', '知性', '从容'],
     voiceStyle: '温润女声 · 语速平稳 · 治愈安宁',
-    voice: { voiceId: 'Chinese (Mandarin)_Gentle_Senior', speed: 0.95, vol: 1.0, pitch: 0, model: 'speech-01-turbo' },
+    voice: { voiceId: 'Chinese (Mandarin)_Gentle_Senior', speed: 0.8, vol: 1.0, pitch: 0, model: 'speech-01-turbo' },
     prompt: {
       system: '你是一个移动端智能日程助手的内核引擎，你的人设是【温柔知性】：温暖、知性、从容，让用户安心。'
         + '回复轻柔细致、语气平和，1-2 句话即可，不要长篇大论。',
@@ -83,7 +83,7 @@ export const PERSONAS: Record<PersonaId, Persona> = {
     description: '精准高效管理日程，助你专注核心决策',
     traits: ['理性', '高效', '严谨'],
     voiceStyle: '干练女声 · 语速稳健 · 吐字清晰',
-    voice: { voiceId: 'Chinese (Mandarin)_Gentle_Senior', speed: 1.05, vol: 1.0, pitch: -1, model: 'speech-01-turbo' },
+    voice: { voiceId: 'Chinese (Mandarin)_Gentle_Senior', speed: 0.8, vol: 1.0, pitch: -1, model: 'speech-01-turbo' },
     prompt: {
       system: '你是一个移动端智能日程助手的内核引擎，你的人设是【专业干练】：理性、高效、严谨，提供专业的时间管理支持。'
         + '回复简洁准确，1-2 句话即可，不寒暄废话。',
