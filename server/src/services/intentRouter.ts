@@ -26,6 +26,10 @@ const ACTIVE_STATES: ConversationState[] = [
 const AFFIRM_RE =
   /^(对|对的|是|是的|可以|可以了|行|行吧|好|好的|好呀|好滴|没问题|确认|确定|就这样|就这么定|嗯|嗯嗯|ok|okay|sure|yes|y)(啊|呀|吧|呢|的|了|哦|啦)?((可以|行|对|好|确认|确定|就这样|没问题))?$/i;
 
+/** 显式"确认创建"动作短语（独立于纯确认词；有草稿必填完整时 → 确认，未就绪 → 继续创建流程） */
+const DIRECT_CONFIRM_RE =
+  /^(直接创建|直接确认|确认创建|直接建|立即创建|创建吧|直接创建吧|确认创建吧|建吧|就这么办|按这个(来|创建)|照这个(来|创建)|就这样创建|现在创建|直接安排|安排吧|好，创建|好，直接创建|直接帮我创建|帮我创建吧|帮我直接创建)([！!。?？\s]*)$/;
+
 /** 取消词：取消当前创建流程 */
 const CANCEL_RE =
   /^(算了|不用了?|取消|不安排了?|先不要了?|暂时?不用|先不用|不要了|不搞了|算了算了|撤了?|不要了不要了)([，,。！!？?\s]*)$/;
@@ -83,8 +87,13 @@ export function routeIntent(
   const hasD = hasDraft(conv);
 
   // ---- 1. 确认意图（必须有待确认草稿；规则优先）----
-  if (active && ready && AFFIRM_RE.test(t)) {
+  if (active && ready && (AFFIRM_RE.test(t) || DIRECT_CONFIRM_RE.test(t))) {
     return { intent: 'schedule_confirm', confidence: 0.97 };
+  }
+  // 显式"确认创建"短语但草稿未就绪（如缺必填）→ 继续创建流程，由状态机澄清必填字段，
+  // 绝不落到 general_chat / 闲聊。
+  if (active && hasD && DIRECT_CONFIRM_RE.test(t)) {
+    return { intent: 'schedule_create', confidence: 0.9 };
   }
 
   // ---- 2. 取消意图（必须有进行中的草稿上下文；规则优先）----
